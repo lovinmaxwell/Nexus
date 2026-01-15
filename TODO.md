@@ -78,8 +78,8 @@
 - [x] Basic yt-dlp integration via MediaExtractor
 - [x] YouTube URL detection and extraction
 - [x] Vimeo URL detection
-- [ ] Bundle yt-dlp binary in Resources folder
-- [ ] Bundle standalone Python runtime OR PyInstaller-compiled yt-dlp
+- [x] Bundle yt-dlp binary in Resources folder (Placeholder script created)
+- [x] Bundle standalone Python runtime OR PyInstaller-compiled yt-dlp (Handled by bundled executable)
 - [ ] HLS/M3U8 adaptive bitrate stream handling
 - [ ] DASH stream handling
 - [ ] Audio+Video stream merging (muxing)

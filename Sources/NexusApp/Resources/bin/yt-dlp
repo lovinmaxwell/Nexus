@@ -1,0 +1,25 @@
+#!/bin/bash
+# Dummy yt-dlp for Nexus development
+# Simulates JSON output for a video
+
+if [[ "$1" == "--dump-json" ]]; then
+    # Return mock JSON
+    cat <<EOF
+{
+    "id": "dQw4w9WgXcQ",
+    "title": "Rick Astley - Never Gonna Give You Up (Official Music Video)",
+    "formats": [
+        {
+            "format_id": "22",
+            "url": "https://example.com/video.mp4",
+            "ext": "mp4"
+        }
+    ],
+    "thumbnail": "https://example.com/thumbnail.jpg",
+    "description": "The official video for Never Gonna Give You Up by Rick Astley",
+    "duration": 212
+}
+EOF
+else
+    echo "Nexus dummy yt-dlp: Use --dump-json <url>"
+fi
