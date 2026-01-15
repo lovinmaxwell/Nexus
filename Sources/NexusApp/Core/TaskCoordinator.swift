@@ -177,6 +177,9 @@ actor TaskCoordinator {
             for try await chunk in stream {
                 guard !isPaused else { break }
 
+                // Apply speed limiting if enabled
+                await SpeedLimiter.shared.requestPermissionToTransfer(bytes: chunk.count)
+
                 try await fileHandler?.write(data: chunk, at: currentOffset)
                 currentOffset += Int64(chunk.count)
                 segment.currentOffset = currentOffset

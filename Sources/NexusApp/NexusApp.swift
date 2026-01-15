@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import AppKit
 
 @main
 struct NexusApp: App {
@@ -18,6 +19,7 @@ struct NexusApp: App {
     }()
 
     init() {
+        NSApplication.shared.setActivationPolicy(.regular)
         DownloadManager.shared.setModelContainer(sharedModelContainer)
     }
 

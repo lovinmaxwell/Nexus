@@ -1,6 +1,45 @@
 import SwiftUI
 import SwiftData
 
+enum DownloadCategory: String, CaseIterable, Identifiable {
+    case all = "All Downloads"
+    case compressed = "Compressed"
+    case documents = "Documents"
+    case music = "Music"
+    case video = "Video"
+    case programs = "Programs"
+    
+    var id: String { rawValue }
+    
+    var icon: String {
+        switch self {
+        case .all: return "arrow.down.circle.fill"
+        case .compressed: return "doc.zipper"
+        case .documents: return "doc.fill"
+        case .music: return "music.note"
+        case .video: return "film"
+        case .programs: return "app.fill"
+        }
+    }
+    
+    var extensions: Set<String> {
+        switch self {
+        case .all: return []
+        case .compressed: return ["zip", "rar", "7z", "tar", "gz", "bz2", "xz", "dmg", "pkg"]
+        case .documents: return ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "rtf", "odt"]
+        case .music: return ["mp3", "wav", "flac", "aac", "m4a", "ogg", "wma", "aiff"]
+        case .video: return ["mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "m4v", "mpeg"]
+        case .programs: return ["exe", "msi", "app", "deb", "rpm", "apk", "ipa"]
+        }
+    }
+    
+    func matches(_ task: DownloadTask) -> Bool {
+        if self == .all { return true }
+        let ext = (task.destinationPath as NSString).pathExtension.lowercased()
+        return extensions.contains(ext)
+    }
+}
+
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \DownloadTask.createdDate, order: .reverse) private var tasks: [DownloadTask]
@@ -8,12 +47,40 @@ struct ContentView: View {
     @State private var selection: UUID?
     @State private var showAddSheet = false
     @State private var newURLString = ""
+    @State private var selectedCategory: DownloadCategory = .all
+
+    var filteredTasks: [DownloadTask] {
+        tasks.filter { selectedCategory.matches($0) }
+    }
 
     var body: some View {
         NavigationSplitView {
             List(selection: $selection) {
+                Section("Categories") {
+                    ForEach(DownloadCategory.allCases) { category in
+                        let count = tasks.filter { category.matches($0) }.count
+                        HStack {
+                            Label(category.rawValue, systemImage: category.icon)
+                            Spacer()
+                            if count > 0 {
+                                Text("\(count)")
+                                    .font(.caption)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.secondary.opacity(0.2))
+                                    .clipShape(Capsule())
+                            }
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            selectedCategory = category
+                            selection = nil
+                        }
+                    }
+                }
+                
                 Section("Downloads") {
-                    ForEach(tasks) { task in
+                    ForEach(filteredTasks) { task in
                         DownloadRowView(task: task)
                             .tag(task.id)
                     }
@@ -31,15 +98,15 @@ struct ContentView: View {
             }
         } detail: {
             if let selectedID = selection,
-               let task = tasks.first(where: { $0.id == selectedID }) {
+               let task = filteredTasks.first(where: { $0.id == selectedID }) {
                 TaskDetailView(task: task)
             } else {
                 ContentUnavailableView("Select a Download", systemImage: "arrow.down.circle", description: Text("Choose a download from the sidebar"))
             }
         }
         .sheet(isPresented: $showAddSheet) {
-            AddDownloadSheet(urlString: $newURLString) { url, path in
-                addDownload(url: url, path: path)
+            AddDownloadSheet(urlString: $newURLString) { urlString, path in
+                addDownload(urlString: urlString, path: path)
             }
         }
         .onAppear {
@@ -47,16 +114,23 @@ struct ContentView: View {
         }
     }
 
-    private func addDownload(url: URL, path: String) {
-        let task = DownloadTask(sourceURL: url, destinationPath: path)
-        modelContext.insert(task)
-        try? modelContext.save()
+    private func addDownload(urlString: String, path: String) {
+        Task {
+            do {
+                if let taskID = try await DownloadManager.shared.addMediaDownload(urlString: urlString, destinationFolder: path) {
+                    await DownloadManager.shared.startDownload(taskID: taskID)
+                }
+            } catch {
+                print("Failed to add download: \(error)")
+            }
+        }
     }
 
     private func deleteItems(offsets: IndexSet) {
         withAnimation {
-            for index in offsets {
-                modelContext.delete(tasks[index])
+            let tasksToDelete = offsets.map { filteredTasks[$0] }
+            for task in tasksToDelete {
+                modelContext.delete(task)
             }
         }
     }
@@ -273,7 +347,15 @@ struct AddDownloadSheet: View {
     @Environment(\.dismiss) var dismiss
     @Binding var urlString: String
     @State private var destinationPath: String = ""
-    let onAdd: (URL, String) -> Void
+    @State private var isExtracting = false
+    @State private var errorMessage: String?
+    let onAdd: (String, String) -> Void
+
+    private var isMediaURL: Bool {
+        let mediaHosts = ["youtube.com", "youtu.be", "vimeo.com", "dailymotion.com", "twitch.tv"]
+        guard let url = URL(string: urlString), let host = url.host?.lowercased() else { return false }
+        return mediaHosts.contains { host.contains($0) }
+    }
 
     var body: some View {
         VStack(spacing: 16) {
@@ -283,13 +365,25 @@ struct AddDownloadSheet: View {
             TextField("URL", text: $urlString)
                 .textFieldStyle(.roundedBorder)
 
+            if isMediaURL {
+                Text("YouTube/Media URL detected - will extract video")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             HStack {
-                TextField("Destination", text: $destinationPath)
+                TextField("Destination Folder", text: $destinationPath)
                     .textFieldStyle(.roundedBorder)
 
                 Button("Choose...") {
                     chooseDestination()
                 }
+            }
+
+            if let error = errorMessage {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
             }
 
             HStack {
@@ -301,43 +395,32 @@ struct AddDownloadSheet: View {
                 Spacer()
 
                 Button("Add") {
-                    if let url = URL(string: urlString), !destinationPath.isEmpty {
-                        onAdd(url, destinationPath)
-                        urlString = ""
-                        destinationPath = ""
-                        dismiss()
-                    }
+                    onAdd(urlString, destinationPath)
+                    urlString = ""
+                    destinationPath = ""
+                    dismiss()
                 }
                 .keyboardShortcut(.return)
                 .buttonStyle(.borderedProminent)
-                .disabled(URL(string: urlString) == nil || destinationPath.isEmpty)
+                .disabled(urlString.isEmpty || destinationPath.isEmpty)
             }
         }
         .padding()
         .frame(width: 400)
         .onAppear {
-            if let filename = URL(string: urlString)?.lastPathComponent, !filename.isEmpty {
-                let downloadsPath = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first?.path ?? "/tmp"
-                destinationPath = "\(downloadsPath)/\(filename)"
-            }
-        }
-        .onChange(of: urlString) { _, newValue in
-            if let filename = URL(string: newValue)?.lastPathComponent, !filename.isEmpty {
-                let downloadsPath = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first?.path ?? "/tmp"
-                destinationPath = "\(downloadsPath)/\(filename)"
-            }
+            let downloadsPath = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first?.path ?? "/tmp"
+            destinationPath = downloadsPath
         }
     }
 
     private func chooseDestination() {
-        let panel = NSSavePanel()
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
         panel.canCreateDirectories = true
-        if let filename = URL(string: urlString)?.lastPathComponent {
-            panel.nameFieldStringValue = filename
-        }
+        panel.allowsMultipleSelection = false
         if panel.runModal() == .OK, let url = panel.url {
             destinationPath = url.path
         }
     }
 }
-
