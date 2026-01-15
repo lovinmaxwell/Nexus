@@ -68,11 +68,11 @@
   - [x] Integrate with DownloadManager
 
 ### FR-07: Video Stream Detection [P1]
-- [ ] Detect M3U8 streams in browser
-- [ ] Detect MP4 video elements
-- [ ] Detect FLV streams
-- [ ] Inject "Download with Nexus" overlay button on video players
-- [ ] Extract video URL and pass to download engine
+- [x] Detect M3U8 streams in browser (via DOM video tags)
+- [x] Detect MP4 video elements
+- [x] Detect FLV streams (via DOM video tags)
+- [x] Inject "Download with Nexus" overlay button on video players
+- [x] Extract video URL and pass to download engine
 
 ### FR-08: Media Intelligence (yt-dlp) [P1]
 - [x] Basic yt-dlp integration via MediaExtractor
