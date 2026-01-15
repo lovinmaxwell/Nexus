@@ -6,117 +6,289 @@ actor TaskCoordinator {
     let modelContainer: ModelContainer
     private let networkHandler: NetworkHandler
     private var fileHandler: SparseFileHandler?
-    
-    // In-memory active state
+
     private var isRunning = false
-    
-    init(taskID: UUID, container: ModelContainer, networkHandler: NetworkHandler = URLSessionHandler()) {
+    private var isPaused = false
+    private var activeSegmentTasks: [UUID: Task<Void, Error>] = [:]
+    private var segmentProgress: [UUID: SegmentProgress] = [:]
+
+    let maxConnections: Int
+    private let persistenceInterval: TimeInterval = 30.0
+    private var persistenceTask: Task<Void, Never>?
+
+    struct SegmentProgress {
+        var bytesDownloaded: Int64
+        var startTime: Date
+        var lastUpdateTime: Date
+        var currentSpeed: Double // bytes per second
+    }
+
+    init(taskID: UUID, container: ModelContainer, networkHandler: NetworkHandler = URLSessionHandler(), maxConnections: Int = 8) {
         self.taskID = taskID
         self.modelContainer = container
         self.networkHandler = networkHandler
+        self.maxConnections = min(max(maxConnections, 1), 32)
     }
-    
+
     @MainActor
-    private func updateTask(_ block: (DownloadTask) -> Void) {
+    private func fetchTask() -> DownloadTask? {
         let context = modelContainer.mainContext
-        guard let task = try? context.fetch(FetchDescriptor<DownloadTask>(predicate: #Predicate { $0.id == taskID })).first else { return }
-        block(task)
-        try? context.save()
+        let id = taskID
+        return try? context.fetch(FetchDescriptor<DownloadTask>(predicate: #Predicate { $0.id == id })).first
+    }
+
+    @MainActor
+    private func updateTaskStatus(_ status: TaskStatus) {
+        guard let task = fetchTask() else { return }
+        task.status = status
+        try? modelContainer.mainContext.save()
     }
 
     func start() async {
         guard !isRunning else { return }
         isRunning = true
-        
-        await updateTask { $0.status = .running }
-        
-        // Fetch task details (on background context to avoid MainActor requirement inside actor? 
-        // access to SwiftData models is not thread-safe, strict concurrency requires care)
-        // For simplicity, we fetch fresh context here.
-        let stringID = taskID
-        let descriptor = FetchDescriptor<DownloadTask>(predicate: #Predicate { $0.id == stringID })
+        isPaused = false
+
+        await updateTaskStatus(.running)
+
         let context = ModelContext(modelContainer)
-        
+        let id = taskID
+        let descriptor = FetchDescriptor<DownloadTask>(predicate: #Predicate { $0.id == id })
+
         guard let task = try? context.fetch(descriptor).first else {
             print("Task not found")
+            isRunning = false
             return
         }
-        
+
         do {
-            // 1. Initialize File
             fileHandler = try SparseFileHandler(path: task.destinationPath)
-            
-            // 2. Head Request
             let meta = try await networkHandler.headRequest(url: task.sourceURL)
-            
-            // Update metadata
+
             task.totalSize = meta.contentLength
             task.eTag = meta.eTag
             task.lastModified = meta.lastModified
             try context.save()
-            
+
             try await fileHandler?.setFileSize(meta.contentLength)
-            
-            if meta.acceptsRanges {
-                print("Server supports ranges. Starting segmentation...")
-                let segmentCount = 4
-                let segmentSize = meta.contentLength / Int64(segmentCount)
-                
-                var segmentInfos: [(id: UUID, start: Int64, end: Int64)] = []
-                
-                for i in 0..<segmentCount {
-                    let start = Int64(i) * segmentSize
-                    let end = (i == segmentCount - 1) ? meta.contentLength - 1 : (start + segmentSize - 1)
-                    let id = UUID()
-                    let segment = FileSegment(id: id, startOffset: start, endOffset: end, currentOffset: start)
-                    task.segments.append(segment)
-                    segmentInfos.append((id, start, end))
-                }
-                try context.save()
-                
-                try await withThrowingTaskGroup(of: Void.self) { group in
-                    for info in segmentInfos {
-                        group.addTask {
-                            try await self.downloadSegment(id: info.id, start: info.start, end: info.end, url: task.sourceURL)
-                        }
-                    }
-                    try await group.waitForAll()
-                }
-                
-                task.status = .complete
-                print("Download complete!")
+
+            startPeriodicPersistence()
+
+            if meta.acceptsRanges && meta.contentLength > 0 {
+                print("Server supports ranges. Starting dynamic segmentation...")
+                await downloadWithSegmentation(task: task, context: context, totalSize: meta.contentLength)
             } else {
-                print("Server does not support ranges. Fallback to normal download.")
-                // Single segment
-                 let id = UUID()
-                 let segment = FileSegment(id: id, startOffset: 0, endOffset: meta.contentLength - 1, currentOffset: 0)
-                 task.segments.append(segment)
-                 try context.save()
-                 
-                 try await downloadSegment(id: id, start: 0, end: meta.contentLength - 1, url: task.sourceURL)
-                 task.status = .complete
+                print("Server does not support ranges. Single connection download.")
+                await downloadSingleConnection(task: task, context: context, totalSize: meta.contentLength)
             }
-            try context.save()
-            
+
+            stopPeriodicPersistence()
+
+            if !isPaused {
+                task.status = .complete
+                try context.save()
+                print("Download complete!")
+            }
+
         } catch {
             print("Download error: \(error)")
             task.status = .error
             try? context.save()
         }
-        
+
+        try? await fileHandler?.close()
         isRunning = false
     }
 
-    private func downloadSegment(id: UUID, start: Int64, end: Int64, url: URL) async throws {
-        let stream = try await networkHandler.downloadRange(url: url, start: start, end: end)
-        var currentOffset = start
-        
-        for try await chunk in stream {
-            try await fileHandler?.write(data: chunk, at: currentOffset)
-            currentOffset += Int64(chunk.count)
-            
-            // Periodically update DB? Or just keep in memory for now? 
-            // For real production we need to batch DB updates to avoid IO thrashing.
+    func pause() async {
+        isPaused = true
+        for (_, task) in activeSegmentTasks {
+            task.cancel()
         }
+        activeSegmentTasks.removeAll()
+        stopPeriodicPersistence()
+        await persistState()
+        await updateTaskStatus(.paused)
+    }
+
+    func resume() async {
+        guard isPaused else { return }
+        isPaused = false
+        await start()
+    }
+
+    private func downloadWithSegmentation(task: DownloadTask, context: ModelContext, totalSize: Int64) async {
+        let initialSegmentCount = min(maxConnections, 4)
+        let segmentSize = totalSize / Int64(initialSegmentCount)
+
+        if task.segments.isEmpty {
+            for i in 0..<initialSegmentCount {
+                let start = Int64(i) * segmentSize
+                let end = (i == initialSegmentCount - 1) ? totalSize - 1 : (start + segmentSize - 1)
+                let segment = FileSegment(startOffset: start, endOffset: end, currentOffset: start)
+                task.segments.append(segment)
+            }
+            try? context.save()
+        }
+
+        await withTaskGroup(of: Void.self) { group in
+            let incompleteSegments = task.segments.filter { !$0.isComplete }
+
+            for segment in incompleteSegments.prefix(maxConnections) {
+                group.addTask {
+                    await self.downloadSegmentWithInHalf(
+                        segmentID: segment.id,
+                        url: task.sourceURL,
+                        context: context
+                    )
+                }
+            }
+
+            await group.waitForAll()
+        }
+    }
+
+    private func downloadSegmentWithInHalf(segmentID: UUID, url: URL, context: ModelContext) async {
+        guard !isPaused else { return }
+
+        let segDescriptor = FetchDescriptor<FileSegment>(predicate: #Predicate { $0.id == segmentID })
+        guard let segment = try? context.fetch(segDescriptor).first else { return }
+
+        let start = segment.currentOffset
+        let end = segment.endOffset
+
+        guard start <= end else {
+            segment.isComplete = true
+            try? context.save()
+            return
+        }
+
+        segmentProgress[segmentID] = SegmentProgress(
+            bytesDownloaded: 0,
+            startTime: Date(),
+            lastUpdateTime: Date(),
+            currentSpeed: 0
+        )
+
+        do {
+            let stream = try await networkHandler.downloadRange(url: url, start: start, end: end)
+            var currentOffset = start
+
+            for try await chunk in stream {
+                guard !isPaused else { break }
+
+                try await fileHandler?.write(data: chunk, at: currentOffset)
+                currentOffset += Int64(chunk.count)
+                segment.currentOffset = currentOffset
+
+                if var progress = segmentProgress[segmentID] {
+                    progress.bytesDownloaded += Int64(chunk.count)
+                    progress.lastUpdateTime = Date()
+                    let elapsed = progress.lastUpdateTime.timeIntervalSince(progress.startTime)
+                    if elapsed > 0 {
+                        progress.currentSpeed = Double(progress.bytesDownloaded) / elapsed
+                    }
+                    segmentProgress[segmentID] = progress
+                }
+
+                if currentOffset > end {
+                    segment.isComplete = true
+                    break
+                }
+            }
+
+            if currentOffset > end {
+                segment.isComplete = true
+            }
+
+            try? context.save()
+
+            if !isPaused && segment.isComplete {
+                await tryInHalfSplit(context: context, url: url)
+            }
+
+        } catch {
+            if !isPaused {
+                print("Segment \(segmentID) error: \(error)")
+            }
+        }
+
+        segmentProgress.removeValue(forKey: segmentID)
+    }
+
+    private func tryInHalfSplit(context: ModelContext, url: URL) async {
+        let taskDescriptor = FetchDescriptor<DownloadTask>(predicate: #Predicate { $0.id == taskID })
+        guard let task = try? context.fetch(taskDescriptor).first else { return }
+
+        let activeCount = segmentProgress.count
+        guard activeCount < maxConnections else { return }
+
+        let incompleteSegments = task.segments.filter { !$0.isComplete }
+        guard let largestSegment = incompleteSegments.max(by: { ($0.endOffset - $0.currentOffset) < ($1.endOffset - $1.currentOffset) }) else { return }
+
+        let remainingBytes = largestSegment.endOffset - largestSegment.currentOffset
+        let minSplitSize: Int64 = 256 * 1024
+
+        guard remainingBytes > minSplitSize * 2 else { return }
+
+        let midpoint = largestSegment.currentOffset + (remainingBytes / 2)
+        let newSegment = FileSegment(
+            startOffset: midpoint,
+            endOffset: largestSegment.endOffset,
+            currentOffset: midpoint
+        )
+        largestSegment.endOffset = midpoint - 1
+        task.segments.append(newSegment)
+        try? context.save()
+
+        print("In-Half split: created new segment from \(midpoint) to \(newSegment.endOffset)")
+
+        Task {
+            await downloadSegmentWithInHalf(segmentID: newSegment.id, url: url, context: context)
+        }
+    }
+
+    private func downloadSingleConnection(task: DownloadTask, context: ModelContext, totalSize: Int64) async {
+        let segment: FileSegment
+        if let existing = task.segments.first {
+            segment = existing
+        } else {
+            segment = FileSegment(startOffset: 0, endOffset: totalSize - 1, currentOffset: 0)
+            task.segments.append(segment)
+            try? context.save()
+        }
+
+        await downloadSegmentWithInHalf(segmentID: segment.id, url: task.sourceURL, context: context)
+    }
+
+    private func startPeriodicPersistence() {
+        persistenceTask = Task {
+            while !Task.isCancelled && isRunning {
+                try? await Task.sleep(for: .seconds(persistenceInterval))
+                await persistState()
+            }
+        }
+    }
+
+    private func stopPeriodicPersistence() {
+        persistenceTask?.cancel()
+        persistenceTask = nil
+    }
+
+    private func persistState() async {
+        let context = ModelContext(modelContainer)
+        let id = taskID
+        let descriptor = FetchDescriptor<DownloadTask>(predicate: #Predicate { $0.id == id })
+
+        if (try? context.fetch(descriptor).first) != nil {
+            try? context.save()
+            print("State persisted for task \(id)")
+        }
+    }
+
+    func getProgress() -> (totalBytes: Int64, downloadedBytes: Int64, speed: Double) {
+        let downloaded = segmentProgress.values.reduce(0) { $0 + $1.bytesDownloaded }
+        let speed = segmentProgress.values.reduce(0.0) { $0 + $1.currentSpeed }
+        return (0, downloaded, speed)
     }
 }

@@ -17,6 +17,10 @@ struct NexusApp: App {
         }
     }()
 
+    init() {
+        DownloadManager.shared.setModelContainer(sharedModelContainer)
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()
