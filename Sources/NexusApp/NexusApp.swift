@@ -30,7 +30,7 @@ struct NexusApp: App {
         BrowserExtensionListener.shared.startListening()
         
         Task {
-            await ytDlpUpdater.shared.checkForUpdates()
+            _ = await YtDlpUpdater.shared.performAutoCheckIfNeeded()
         }
     }
 

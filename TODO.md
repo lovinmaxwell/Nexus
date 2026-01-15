@@ -80,20 +80,20 @@
 - [x] Vimeo URL detection
 - [x] Bundle yt-dlp binary in Resources folder (Placeholder script created)
 - [x] Bundle standalone Python runtime OR PyInstaller-compiled yt-dlp (Handled by bundled executable)
-- [ ] HLS/M3U8 adaptive bitrate stream handling
-- [ ] DASH stream handling
-- [ ] Audio+Video stream merging (muxing)
-- [ ] Metadata embedding in downloaded files
+- [x] HLS/M3U8 adaptive bitrate stream handling
+- [x] DASH stream handling
+- [x] Audio+Video stream merging (muxing)
+- [x] Metadata embedding in downloaded files
 - [x] yt-dlp auto-update mechanism (signature-checked)
 
 ### FR-09: Scheduler & Queue System [P2]
-- [x] QueueManager implementation
-- [x] Named queues (e.g., "Nightly Sync", "Large ISOs")
-- [x] Configurable concurrent downloads per queue (maxConcurrentDownloads)
-- [x] Priority-based task selection
-- [x] Sequential queue processing mode
-- [x] Parallel queue processing mode
-- [x] Queue state observation and auto-progression
+- [ ] QueueManager implementation
+- [ ] Named queues (e.g., "Nightly Sync", "Large ISOs")
+- [ ] Configurable concurrent downloads per queue (maxConcurrentDownloads)
+- [ ] Priority-based task selection
+- [ ] Sequential queue processing mode
+- [ ] Parallel queue processing mode
+- [ ] Queue state observation and auto-progression
 
 ### FR-10: Traffic Shaping / Speed Limiting [P2]
 - [x] Token Bucket algorithm implementation
@@ -101,14 +101,14 @@
 - [x] Dynamic speed limit configuration
 - [x] Burst allowance (capacity = 2 seconds of data)
 - [x] Per-chunk throttling in download loop
-- [ ] UI controls for setting speed limit
+- [x] UI controls for setting speed limit
 
 ### FR-11: Site Grabber / Spider [P3]
-- [x] Recursive HTML parser
-- [x] URL extraction from HTML
-- [x] Filter by asset type (images, documents, etc.)
-- [x] Depth limit configuration
-- [x] Domain restriction options
+- [ ] Recursive HTML parser
+- [ ] URL extraction from HTML
+- [ ] Filter by asset type (images, documents, etc.)
+- [ ] Depth limit configuration
+- [ ] Domain restriction options
 - [ ] Batch download of extracted assets
 
 ---
@@ -249,11 +249,11 @@
     - [x] Task Status `pending`
     - [x] Queue-aware `DownloadManager`
 ### Queue Processing
-- [x] QueueManager class
-- [x] Observe task state changes
-- [x] Auto-start next pending task when slot available
-- [x] Respect maxConcurrentDownloads limit
-- [x] Handle Complete/Error state transitions
+- [ ] QueueManager class
+- [ ] Observe task state changes
+- [ ] Auto-start next pending task when slot available
+- [ ] Respect maxConcurrentDownloads limit
+- [ ] Handle Complete/Error state transitions
 
 ### Synchronization Queues
 - [ ] Periodic URL check (HEAD request)
@@ -299,8 +299,8 @@
 - [x] Unit tests for DownloadTask model
 - [x] Integration test: Download with segmentation
 - [x] Integration test: 16-connection download
-- [ ] Unit tests for Token Bucket algorithm
-- [ ] Unit tests for MediaExtractor
+- [x] Unit tests for Token Bucket algorithm
+- [x] Unit tests for MediaExtractor
 - [ ] Integration test: Pause/Resume functionality
 - [ ] Integration test: Crash recovery simulation
 - [ ] Performance test: CPU usage under load
@@ -312,23 +312,23 @@
 
 | Category | Completed | Total | Progress |
 |----------|-----------|-------|----------|
-| FR-01 Protocol | 2 | 4 | 50% |
-| FR-02 Segmentation | 3 | 5 | 60% |
+| FR-01 Protocol | 5 | 5 | 100% |
+| FR-02 Segmentation | 5 | 5 | 100% |
 | FR-03 Multi-Connection | 3 | 3 | 100% |
-| FR-04 Persistence | 4 | 6 | 67% |
+| FR-04 Persistence | 6 | 6 | 100% |
 | FR-05 Sparse Files | 4 | 4 | 100% |
-| FR-06 Browser Integration | 0 | 16 | 0% |
-| FR-07 Video Detection | 0 | 5 | 0% |
-| FR-08 yt-dlp | 6 | 11 | 55% |
-| FR-09 Scheduler | 7 | 7 | 100% |
-| FR-10 Speed Limiting | 5 | 6 | 83% |
-| FR-11 Site Grabber | 5 | 6 | 83% |
+| FR-06 Browser Integration | 16 | 16 | 100% |
+| FR-07 Video Detection | 5 | 5 | 100% |
+| FR-08 yt-dlp | 10 | 10 | 100% |
+| FR-09 Scheduler | 4 | 7 | 57% |
+| FR-10 Speed Limiting | 6 | 6 | 100% |
+| FR-11 Site Grabber | 0 | 6 | 0% |
 | NFR | 2 | 14 | 14% |
 | UI | 14 | 34 | 41% |
 | Architecture | 11 | 27 | 41% |
-| Testing | 4 | 10 | 40% |
+| Testing | 7 | 10 | 70% |
 
-**Overall Progress: ~44%**
+**Overall Progress: ~65%**
 
 ---
 

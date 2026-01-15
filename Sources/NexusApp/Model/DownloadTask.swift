@@ -7,6 +7,7 @@ public enum TaskStatus: Int, Codable {
     case complete = 2
     case error = 3
     case pending = 4
+    case extracting = 5  // Extracting media info (YouTube, etc.)
 }
 
 @Model
@@ -26,6 +27,12 @@ public final class DownloadTask {
     public var segments: [FileSegment] = []
 
     public var queue: DownloadQueue?
+    
+    /// Display name for the task (used during extraction before real title is known)
+    public var displayName: String?
+    
+    /// Error message if status is .error
+    public var errorMessage: String?
 
     public init(
         id: UUID = UUID(), sourceURL: URL, destinationPath: String, totalSize: Int64 = 0,
@@ -38,5 +45,13 @@ public final class DownloadTask {
         self.status = status
         self.createdDate = createdDate
         self.priority = priority
+    }
+    
+    /// Returns the best available name for display
+    public var effectiveDisplayName: String {
+        if let name = displayName, !name.isEmpty {
+            return name
+        }
+        return sourceURL.lastPathComponent
     }
 }

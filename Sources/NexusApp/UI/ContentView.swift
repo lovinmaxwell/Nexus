@@ -1,6 +1,50 @@
 import SwiftData
 import SwiftUI
 
+// MARK: - Speed Limit Presets
+
+/// Unit of speed for custom speed limit input.
+enum SpeedUnit: String, CaseIterable, Identifiable {
+    case kbps = "KB/s"
+    case mbps = "MB/s"
+
+    var id: String { rawValue }
+
+    /// Multiplier to convert the value to bytes per second.
+    var multiplier: Int64 {
+        switch self {
+        case .kbps: return 1024
+        case .mbps: return 1024 * 1024
+        }
+    }
+}
+
+/// Predefined speed limit options for quick selection.
+enum SpeedLimitPreset: String, CaseIterable, Identifiable {
+    case unlimited = "Unlimited"
+    case slow = "500 KB/s"
+    case medium = "1 MB/s"
+    case fast = "5 MB/s"
+    case veryFast = "10 MB/s"
+    case custom = "Custom..."
+
+    var id: String { rawValue }
+
+    /// Speed limit in bytes per second.
+    var bytesPerSecond: Int64 {
+        switch self {
+        case .unlimited: return 0
+        case .slow: return 500 * 1024
+        case .medium: return 1024 * 1024
+        case .fast: return 5 * 1024 * 1024
+        case .veryFast: return 10 * 1024 * 1024
+        case .custom: return 0  // Handled separately
+        }
+    }
+}
+
+// MARK: - Download Category
+
 enum DownloadCategory: String, CaseIterable, Identifiable {
     case all = "All Downloads"
     case compressed = "Compressed"
@@ -44,11 +88,15 @@ enum DownloadCategory: String, CaseIterable, Identifiable {
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \DownloadTask.createdDate, order: .reverse) private var tasks: [DownloadTask]
+    @ObservedObject private var speedLimiter = SpeedLimiter.shared
 
     @State private var selection: UUID?
     @State private var showAddSheet = false
     @State private var newURLString = ""
     @State private var selectedCategory: DownloadCategory = .all
+    @State private var showSpeedLimitPopover = false
+    @State private var customSpeedLimit: Double = 1.0
+    @State private var customSpeedUnit: SpeedUnit = .mbps
 
     var filteredTasks: [DownloadTask] {
         tasks.filter { selectedCategory.matches($0) }
@@ -95,6 +143,26 @@ struct ContentView: View {
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     HStack {
+                        // Speed Limit Control
+                        Button {
+                            showSpeedLimitPopover.toggle()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: speedLimiter.isEnabled ? "gauge.with.dots.needle.33percent" : "gauge.with.dots.needle.100percent")
+                                if speedLimiter.isEnabled {
+                                    Text(speedLimiter.limitDescription)
+                                        .font(.caption)
+                                }
+                            }
+                        }
+                        .popover(isPresented: $showSpeedLimitPopover) {
+                            SpeedLimitPopoverView(
+                                customSpeed: $customSpeedLimit,
+                                customUnit: $customSpeedUnit
+                            )
+                        }
+                        .help(speedLimiter.isEnabled ? "Speed limit: \(speedLimiter.limitDescription)" : "Speed limit: Unlimited")
+
                         Menu {
                             Button("Clear Completed") {
                                 deleteTasks(completedOnly: true)
@@ -157,10 +225,17 @@ struct ContentView: View {
     private func addDownload(urlString: String, path: String) {
         Task {
             do {
+                // For media URLs, the task is added immediately and extraction happens in background
+                // For regular URLs, we start download right away
                 if let taskID = try await DownloadManager.shared.addMediaDownload(
                     urlString: urlString, destinationFolder: path)
                 {
-                    await DownloadManager.shared.startDownload(taskID: taskID)
+                    // Only start immediately for non-media URLs
+                    // Media URLs auto-start after extraction completes
+                    let extractor = MediaExtractor.shared
+                    if !extractor.isMediaURL(urlString) {
+                        await DownloadManager.shared.startDownload(taskID: taskID)
+                    }
                 }
             } catch {
                 print("Failed to add download: \(error)")
@@ -206,7 +281,7 @@ struct DownloadRowView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(task.sourceURL.lastPathComponent)
+            Text(task.effectiveDisplayName)
                 .font(.headline)
                 .lineLimit(1)
 
@@ -225,9 +300,14 @@ struct DownloadRowView: View {
                 }
             }
 
-            if task.status == .running {
-                ProgressView(value: progress)
-                    .progressViewStyle(.linear)
+            if task.status == .running || task.status == .extracting {
+                if task.status == .extracting {
+                    ProgressView()
+                        .progressViewStyle(.linear)
+                } else {
+                    ProgressView(value: progress)
+                        .progressViewStyle(.linear)
+                }
             }
         }
         .padding(.vertical, 4)
@@ -251,6 +331,9 @@ struct DownloadRowView: View {
             case .error:
                 Image(systemName: "exclamationmark.circle.fill")
                     .foregroundStyle(.red)
+            case .extracting:
+                Image(systemName: "wand.and.stars")
+                    .foregroundStyle(.purple)
             }
         }
         .font(.caption)
@@ -262,7 +345,8 @@ struct DownloadRowView: View {
         case .running: return "Downloading..."
         case .pending: return "Pending"
         case .complete: return "Complete"
-        case .error: return "Error"
+        case .error: return task.errorMessage ?? "Error"
+        case .extracting: return "Extracting media info..."
         }
     }
 
@@ -306,13 +390,14 @@ struct TaskDetailView: View {
                 }
 
                 HStack(spacing: 12) {
-                    if task.status == .paused || task.status == .error {
+                    if task.status == .paused || task.status == .error || task.status == .pending {
                         Button("Start") {
                             Task {
                                 await DownloadManager.shared.startDownload(taskID: task.id)
                             }
                         }
                         .buttonStyle(.borderedProminent)
+                        .disabled(task.status == .extracting)
                     }
 
                     if task.status == .running {
@@ -322,6 +407,14 @@ struct TaskDetailView: View {
                             }
                         }
                         .buttonStyle(.bordered)
+                    }
+                    
+                    if task.status == .extracting {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Extracting media info...")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
 
                     if task.status == .complete {
@@ -501,6 +594,107 @@ struct AddDownloadSheet: View {
         panel.allowsMultipleSelection = false
         if panel.runModal() == .OK, let url = panel.url {
             destinationPath = url.path
+        }
+    }
+}
+
+// MARK: - Speed Limit Popover View
+
+/// A popover view for configuring download speed limits.
+///
+/// Provides preset speed limit options and a custom speed limit input.
+struct SpeedLimitPopoverView: View {
+    @ObservedObject private var speedLimiter = SpeedLimiter.shared
+    @Binding var customSpeed: Double
+    @Binding var customUnit: SpeedUnit
+    @State private var showCustomInput = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Speed Limit")
+                .font(.headline)
+
+            // Current status
+            HStack {
+                Circle()
+                    .fill(speedLimiter.isEnabled ? Color.orange : Color.green)
+                    .frame(width: 8, height: 8)
+                Text(speedLimiter.isEnabled ? "Limited to \(speedLimiter.limitDescription)" : "Unlimited")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            Divider()
+
+            // Preset options
+            ForEach(SpeedLimitPreset.allCases.filter { $0 != .custom }) { preset in
+                Button {
+                    applyPreset(preset)
+                } label: {
+                    HStack {
+                        Text(preset.rawValue)
+                        Spacer()
+                        if isPresetSelected(preset) {
+                            Image(systemName: "checkmark")
+                                .foregroundStyle(.blue)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+
+            Divider()
+
+            // Custom speed limit
+            DisclosureGroup("Custom Speed Limit", isExpanded: $showCustomInput) {
+                HStack {
+                    TextField("Speed", value: $customSpeed, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+
+                    Picker("Unit", selection: $customUnit) {
+                        ForEach(SpeedUnit.allCases) { unit in
+                            Text(unit.rawValue).tag(unit)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 70)
+
+                    Button("Apply") {
+                        applyCustomLimit()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(customSpeed <= 0)
+                }
+                .padding(.top, 4)
+            }
+        }
+        .padding()
+        .frame(width: 250)
+    }
+
+    /// Checks if a preset matches the current speed limit.
+    private func isPresetSelected(_ preset: SpeedLimitPreset) -> Bool {
+        if preset == .unlimited {
+            return !speedLimiter.isEnabled
+        }
+        return speedLimiter.isEnabled && speedLimiter.limitBytesPerSecond == preset.bytesPerSecond
+    }
+
+    /// Applies a preset speed limit.
+    private func applyPreset(_ preset: SpeedLimitPreset) {
+        if preset == .unlimited {
+            speedLimiter.disableLimit()
+        } else {
+            speedLimiter.setLimit(bytesPerSecond: preset.bytesPerSecond)
+        }
+    }
+
+    /// Applies a custom speed limit based on user input.
+    private func applyCustomLimit() {
+        let bytesPerSecond = Int64(customSpeed) * customUnit.multiplier
+        if bytesPerSecond > 0 {
+            speedLimiter.setLimit(bytesPerSecond: bytesPerSecond)
         }
     }
 }
