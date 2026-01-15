@@ -22,12 +22,13 @@ struct NexusApp: App {
     init() {
         NSApplication.shared.setActivationPolicy(.regular)
         DownloadManager.shared.setModelContainer(sharedModelContainer)
-        DownloadManager.shared.setModelContainer(sharedModelContainer)
-        // QueueManager context is set inside DownloadManager.setModelContainer, but explicit setting is fine too if we change naming.
-        // But better to remove redundant call or fix it.
-        // QueueManager.shared.setModelContext(sharedModelContainer.mainContext)
+        // QueueManager context is set inside DownloadManager.setModelContainer
+        SynchronizationQueueManager.shared.setModelContext(sharedModelContainer.mainContext)
         QueueManager.shared.processAllQueues()
         BrowserExtensionListener.shared.startListening()
+        
+        // Start synchronization checks for active synchronization queues
+        SynchronizationQueueManager.shared.startSynchronizationChecks()
         
         Task {
             _ = await YtDlpUpdater.shared.performAutoCheckIfNeeded()

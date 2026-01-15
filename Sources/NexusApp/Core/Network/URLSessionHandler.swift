@@ -12,8 +12,7 @@ class URLSessionHandler: NetworkHandler {
     ) {
         var request = URLRequest(url: url)
         request.httpMethod = "HEAD"
-        request.setValue("*/*", forHTTPHeaderField: "Accept")
-        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
+        addBrowserHeaders(to: &request)
 
         let (_, response) = try await session.data(for: request)
 
@@ -85,9 +84,7 @@ class URLSessionHandler: NetworkHandler {
     ) {
         // First try without Range header - some servers block Range requests
         var request = URLRequest(url: url)
-        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
-        // Don't set Referer to avoid anti-hotlinking protections (mimic direct navigation)
-        request.setValue("*/*", forHTTPHeaderField: "Accept")
+        addBrowserHeaders(to: &request)
         
         let (_, response) = try await session.data(for: request)
         
@@ -111,8 +108,7 @@ class URLSessionHandler: NetworkHandler {
             print("URLSessionHandler: GET without Range also 403, trying with Range header...")
             var rangeRequest = URLRequest(url: url)
             rangeRequest.setValue("bytes=0-0", forHTTPHeaderField: "Range")
-            rangeRequest.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
-            // Don't set Referer
+            addBrowserHeaders(to: &rangeRequest)
             
             let (_, rangeResponse) = try await session.data(for: rangeRequest)
             guard let rangeHttpResponse = rangeResponse as? HTTPURLResponse else {
@@ -133,6 +129,14 @@ class URLSessionHandler: NetworkHandler {
         }
         
         return try parseMetadataFromResponse(httpResponse, url: url)
+    }
+    
+    private func addBrowserHeaders(to request: inout URLRequest) {
+        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
+        request.setValue("text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8", forHTTPHeaderField: "Accept")
+        request.setValue("en-US,en;q=0.9", forHTTPHeaderField: "Accept-Language")
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding") // Avoid compressed response if possible, though URLSession handles gzip automatically
+        request.setValue("1", forHTTPHeaderField: "Upgrade-Insecure-Requests")
     }
     
     /// Helper to parse metadata from HTTP response
@@ -183,8 +187,7 @@ class URLSessionHandler: NetworkHandler {
     private func getContentLengthViaGET(url: URL) async throws -> Int64 {
         var request = URLRequest(url: url)
         request.setValue("bytes=0-0", forHTTPHeaderField: "Range")
-        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
-        // Don't set Referer
+        addBrowserHeaders(to: &request)
         
         let (_, response) = try await session.data(for: request)
         
@@ -229,8 +232,7 @@ class URLSessionHandler: NetworkHandler {
             request.setValue("bytes=\(start)-\(end)", forHTTPHeaderField: "Range")
         }
         
-        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
-        // Don't set Referer
+        addBrowserHeaders(to: &request)
         
         let (asyncBytes, response) = try await session.bytes(for: request)
 

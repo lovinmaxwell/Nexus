@@ -95,7 +95,10 @@ class DownloadManager {
             var request = URLRequest(url: currentURL)
             request.httpMethod = useGET ? "GET" : "HEAD"
             request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
-            request.setValue("*/*", forHTTPHeaderField: "Accept")
+            request.setValue("text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8", forHTTPHeaderField: "Accept")
+            request.setValue("en-US,en;q=0.9", forHTTPHeaderField: "Accept-Language")
+            request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+            request.setValue("1", forHTTPHeaderField: "Upgrade-Insecure-Requests")
             // Don't set Referer
             
             do {
