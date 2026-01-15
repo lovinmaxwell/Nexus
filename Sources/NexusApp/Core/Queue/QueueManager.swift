@@ -33,16 +33,21 @@ class QueueManager: ObservableObject {
     private func processQueue(_ queue: DownloadQueue, context: ModelContext) throws {
         // Refresh queue tasks logic
         let runningCount = queue.activeTasks.count
+        let effectiveLimit = queue.mode == .sequential ? 1 : queue.maxConcurrentDownloads
 
-        if runningCount < queue.maxConcurrentDownloads {
-            let slotsAvailable = queue.maxConcurrentDownloads - runningCount
+        if runningCount < effectiveLimit {
+            let slotsAvailable = effectiveLimit - runningCount
             if slotsAvailable > 0 {
                 // Find pending tasks in this queue
-                // Note: We use the relationship `queue.tasks` to find tasks.
-                // We should look for .pending tasks.
+                // Sort by priority (high to low), then by createdDate (old to new)
                 let pendingTasks = queue.tasks
                     .filter { $0.status == .pending }
-                    .sorted { $0.createdDate < $1.createdDate }
+                    .sorted { (t1, t2) -> Bool in
+                        if t1.priority != t2.priority {
+                            return t1.priority > t2.priority
+                        }
+                        return t1.createdDate < t2.createdDate
+                    }
                     .prefix(slotsAvailable)
 
                 for task in pendingTasks {

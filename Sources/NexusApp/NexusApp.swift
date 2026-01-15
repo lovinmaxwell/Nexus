@@ -28,6 +28,10 @@ struct NexusApp: App {
         // QueueManager.shared.setModelContext(sharedModelContainer.mainContext)
         QueueManager.shared.processAllQueues()
         BrowserExtensionListener.shared.startListening()
+        
+        Task {
+            await ytDlpUpdater.shared.checkForUpdates()
+        }
     }
 
     var body: some Scene {

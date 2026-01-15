@@ -124,6 +124,11 @@ struct ContentView: View {
                     description: Text("Choose a download from the sidebar"))
             }
         }
+        .alert("Download Error", isPresented: $showErrorAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(lastErrorMessage)
+        }
         .sheet(isPresented: $showAddSheet) {
             AddDownloadSheet(urlString: $newURLString) { urlString, path in
                 addDownload(urlString: urlString, path: path)
@@ -146,6 +151,9 @@ struct ContentView: View {
         }
     }
 
+    @State private var showErrorAlert = false
+    @State private var lastErrorMessage = ""
+
     private func addDownload(urlString: String, path: String) {
         Task {
             do {
@@ -156,6 +164,8 @@ struct ContentView: View {
                 }
             } catch {
                 print("Failed to add download: \(error)")
+                lastErrorMessage = "Failed to add download: \(error.localizedDescription)"
+                showErrorAlert = true
             }
         }
     }

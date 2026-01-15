@@ -20,6 +20,15 @@ actor MediaExtractor {
     }
 
     private var ytDlpPath: URL {
+        let fileManager = FileManager.default
+        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let nexusDir = appSupport.appendingPathComponent("Nexus")
+        let updatedYtDlp = nexusDir.appendingPathComponent("bin/yt-dlp")
+
+        if fileManager.fileExists(atPath: updatedYtDlp.path) {
+            return updatedYtDlp
+        }
+
         if let bundlePath = Bundle.main.url(
             forResource: "yt-dlp", withExtension: nil, subdirectory: "bin")
         {

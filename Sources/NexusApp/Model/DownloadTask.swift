@@ -20,6 +20,7 @@ public final class DownloadTask {
     public var lastModified: Date?
     public var httpCookies: Data?
     public var createdDate: Date
+    public var priority: Int
 
     @Relationship(deleteRule: .cascade, inverse: \FileSegment.downloadTask)
     public var segments: [FileSegment] = []
@@ -28,7 +29,7 @@ public final class DownloadTask {
 
     public init(
         id: UUID = UUID(), sourceURL: URL, destinationPath: String, totalSize: Int64 = 0,
-        status: TaskStatus = .paused, createdDate: Date = Date()
+        status: TaskStatus = .paused, createdDate: Date = Date(), priority: Int = 0
     ) {
         self.id = id
         self.sourceURL = sourceURL
@@ -36,5 +37,6 @@ public final class DownloadTask {
         self.totalSize = totalSize
         self.status = status
         self.createdDate = createdDate
+        self.priority = priority
     }
 }
