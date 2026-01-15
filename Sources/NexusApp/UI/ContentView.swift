@@ -437,7 +437,8 @@ struct TaskDetailView: View {
         case .running: return "Downloading"
         case .pending: return "Pending"
         case .complete: return "Complete"
-        case .error: return "Error"
+        case .error: return task.errorMessage ?? "Error"
+        case .extracting: return "Extracting media info..."
         }
     }
 

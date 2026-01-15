@@ -67,6 +67,9 @@ actor TaskCoordinator {
         }
 
         do {
+            print("TaskCoordinator: Starting download for \(task.sourceURL)")
+            print("TaskCoordinator: Destination: \(task.destinationPath)")
+            
             fileHandler = try SparseFileHandler(path: task.destinationPath)
 
             // Use NetworkHandlerFactory to get appropriate handler if not already injected
@@ -74,10 +77,13 @@ actor TaskCoordinator {
                 networkHandler = NetworkHandlerFactory.handler(for: task.sourceURL)
             }
             guard let handler = networkHandler else {
+                print("TaskCoordinator: No network handler available for \(task.sourceURL)")
                 throw NetworkError.connectionFailed
             }
 
+            print("TaskCoordinator: Performing HEAD request...")
             let meta = try await handler.headRequest(url: task.sourceURL)
+            print("TaskCoordinator: HEAD request successful - Size: \(meta.contentLength), Ranges: \(meta.acceptsRanges)")
 
             // Validate resume integrity
             if task.segments.count > 0 && task.totalSize > 0 {
@@ -104,7 +110,12 @@ actor TaskCoordinator {
             task.lastModified = meta.lastModified
             try context.save()
 
-            try await fileHandler?.setFileSize(meta.contentLength)
+            // Only set file size if we know it, otherwise let it grow dynamically
+            if meta.contentLength > 0 {
+                try await fileHandler?.setFileSize(meta.contentLength)
+            } else {
+                print("TaskCoordinator: Unknown file size - will determine during download")
+            }
 
             startPeriodicPersistence()
 
@@ -112,9 +123,14 @@ actor TaskCoordinator {
                 print("Server supports ranges. Starting dynamic segmentation...")
                 await downloadWithSegmentation(
                     task: task, context: context, totalSize: meta.contentLength)
+            } else if meta.contentLength == 0 {
+                // Unknown size - use single connection and determine size during download
+                print("Unknown file size. Using single connection download...")
+                try await downloadSingleConnection(
+                    task: task, context: context, totalSize: 0)
             } else {
                 print("Server does not support ranges. Single connection download.")
-                await downloadSingleConnection(
+                try await downloadSingleConnection(
                     task: task, context: context, totalSize: meta.contentLength)
             }
 
@@ -130,6 +146,12 @@ actor TaskCoordinator {
         } catch {
             print("Download error: \(error)")
             task.status = .error
+            // Store error message for display in UI
+            if let networkError = error as? NetworkError {
+                task.errorMessage = networkErrorDescription(networkError)
+            } else {
+                task.errorMessage = error.localizedDescription
+            }
             try? context.save()
             await DownloadManager.shared.notifyTaskFailed(taskID: taskID)
         }
@@ -176,7 +198,7 @@ actor TaskCoordinator {
 
             for segment in incompleteSegments.prefix(maxConnections) {
                 group.addTask {
-                    await self.downloadSegmentWithInHalf(
+                    _ = await self.downloadSegmentWithInHalf(
                         segmentID: segment.id,
                         url: task.sourceURL,
                         context: context
@@ -188,12 +210,13 @@ actor TaskCoordinator {
         }
     }
 
-    private func downloadSegmentWithInHalf(segmentID: UUID, url: URL, context: ModelContext) async {
-        guard !isPaused else { return }
+    @discardableResult
+    private func downloadSegmentWithInHalf(segmentID: UUID, url: URL, context: ModelContext) async -> Bool {
+        guard !isPaused else { return true }
 
         let segDescriptor = FetchDescriptor<FileSegment>(
             predicate: #Predicate { $0.id == segmentID })
-        guard let segment = try? context.fetch(segDescriptor).first else { return }
+        guard let segment = try? context.fetch(segDescriptor).first else { return false }
 
         let start = segment.currentOffset
         let end = segment.endOffset
@@ -201,7 +224,7 @@ actor TaskCoordinator {
         guard start <= end else {
             segment.isComplete = true
             try? context.save()
-            return
+            return true
         }
 
         segmentProgress[segmentID] = SegmentProgress(
@@ -215,6 +238,7 @@ actor TaskCoordinator {
         let maxRetryDelay: TimeInterval = 60.0
         var attempt = 0
         let maxAttempts = 10
+        var success = false
 
         while !isPaused {
             do {
@@ -224,14 +248,26 @@ actor TaskCoordinator {
 
                 // Fetch fresh offset in case it changed (though usually this actor owns it)
                 let currentStart = segment.currentOffset
-                if currentStart > end {
+                let isUnknownSize = (end >= Int64.max - 1000) // Check if end is near max (unknown size)
+                
+                if !isUnknownSize && currentStart > end {
                     segment.isComplete = true
                     try? context.save()
+                    success = true
                     break
                 }
 
-                let stream = try await handler.downloadRange(
-                    url: url, start: currentStart, end: end)
+                // For unknown size, download from current offset without specifying end
+                // For known size, use normal range request
+                let stream: AsyncThrowingStream<Data, Error>
+                if isUnknownSize {
+                    // Download without end limit - will stop when stream ends
+                    stream = try await handler.downloadRange(
+                        url: url, start: currentStart, end: Int64.max)
+                } else {
+                    stream = try await handler.downloadRange(
+                        url: url, start: currentStart, end: end)
+                }
                 var currentOffset = currentStart
 
                 // Reset retry delay on successful connection
@@ -258,22 +294,38 @@ actor TaskCoordinator {
                         segmentProgress[segmentID] = progress
                     }
 
-                    if currentOffset > end {
+                    // For unknown size, completion is determined by stream ending, not offset
+                    if !isUnknownSize && currentOffset > end {
                         segment.isComplete = true
                         break
                     }
                 }
 
-                if currentOffset > end {
+                // If stream ended naturally and we have unknown size, mark as complete and update totalSize
+                if isUnknownSize {
+                    segment.isComplete = true
+                    // Update task totalSize now that we know it
+                    let context = ModelContext(modelContainer)
+                    let taskDescriptor = FetchDescriptor<DownloadTask>(
+                        predicate: #Predicate { $0.id == taskID })
+                    if let task = try? context.fetch(taskDescriptor).first {
+                        task.totalSize = currentOffset
+                        segment.endOffset = currentOffset - 1
+                        try? context.save()
+                        print("TaskCoordinator: Download complete - determined file size: \(currentOffset) bytes")
+                    }
+                } else if currentOffset > end {
                     segment.isComplete = true
                 }
 
                 try? context.save()
 
                 if !isPaused && segment.isComplete {
+                    success = true
                     await tryInHalfSplit(context: context, url: url)
                     break
                 } else if isPaused {
+                    success = true
                     break
                 }
 
@@ -283,6 +335,7 @@ actor TaskCoordinator {
                 attempt += 1
                 if attempt > maxAttempts {
                     print("Segment \(segmentID) failed: Max retries reached for 503")
+                    success = false
                     break
                 }
                 print("Segment \(segmentID) 503 Service Unavailable. Retrying in \(retryDelay)s...")
@@ -293,18 +346,20 @@ actor TaskCoordinator {
             } catch NetworkError.rangeNotSatisfiable {
                 print("Segment \(segmentID) 416 Range Not Satisfiable. Stopping segment.")
                 // Potentially mark as error or complete depending on logic.
-                // For now, stop to avoid infinite loop.
+                success = false
                 break
 
             } catch {
                 if !isPaused {
                     print("Segment \(segmentID) error: \(error)")
+                    success = false
                 }
                 break
             }
         }
 
         segmentProgress.removeValue(forKey: segmentID)
+        return success
     }
 
     private func tryInHalfSplit(context: ModelContext, url: URL) async {
@@ -340,24 +395,31 @@ actor TaskCoordinator {
         print("In-Half split: created new segment from \(midpoint) to \(newSegment.endOffset)")
 
         Task {
-            await downloadSegmentWithInHalf(segmentID: newSegment.id, url: url, context: context)
+            _ = await downloadSegmentWithInHalf(segmentID: newSegment.id, url: url, context: context)
         }
     }
 
     private func downloadSingleConnection(
         task: DownloadTask, context: ModelContext, totalSize: Int64
-    ) async {
+    ) async throws {
         let segment: FileSegment
         if let existing = task.segments.first {
             segment = existing
         } else {
-            segment = FileSegment(startOffset: 0, endOffset: totalSize - 1, currentOffset: 0)
+            // For unknown size (0), use a very large end offset that we'll never reach
+            // The download will stop when the stream ends
+            let endOffset = totalSize > 0 ? totalSize - 1 : Int64.max - 1
+            segment = FileSegment(startOffset: 0, endOffset: endOffset, currentOffset: 0)
             task.segments.append(segment)
             try? context.save()
         }
 
-        await downloadSegmentWithInHalf(
+        let success = await downloadSegmentWithInHalf(
             segmentID: segment.id, url: task.sourceURL, context: context)
+        
+        if !success {
+            throw NetworkError.connectionFailed
+        }
     }
 
     private func startPeriodicPersistence() {
@@ -389,5 +451,25 @@ actor TaskCoordinator {
         let downloaded = segmentProgress.values.reduce(0) { $0 + $1.bytesDownloaded }
         let speed = segmentProgress.values.reduce(0.0) { $0 + $1.currentSpeed }
         return (0, downloaded, speed)
+    }
+    
+    /// Converts NetworkError to a user-friendly description.
+    private func networkErrorDescription(_ error: NetworkError) -> String {
+        switch error {
+        case .invalidURL:
+            return "Invalid URL"
+        case .connectionFailed:
+            return "Connection failed. Please check your internet connection."
+        case .serverError(let code):
+            return "Server error: HTTP \(code)"
+        case .invalidRange:
+            return "Invalid download range"
+        case .serviceUnavailable:
+            return "Service temporarily unavailable. Please try again later."
+        case .rangeNotSatisfiable:
+            return "Server does not support range requests for this file"
+        case .fileModified:
+            return "File has been modified on the server. Please restart the download."
+        }
     }
 }

@@ -137,12 +137,13 @@ actor MediaExtractor {
         let nexusDir = appSupport.appendingPathComponent("Nexus")
         let updatedYtDlp = nexusDir.appendingPathComponent("bin/yt-dlp")
 
-        if fileManager.fileExists(atPath: updatedYtDlp.path) {
+        if fileManager.isExecutableFile(atPath: updatedYtDlp.path) {
             return updatedYtDlp
         }
 
         if let bundlePath = Bundle.main.url(
-            forResource: "yt-dlp", withExtension: nil, subdirectory: "bin")
+            forResource: "yt-dlp", withExtension: nil, subdirectory: "bin"),
+           fileManager.isExecutableFile(atPath: bundlePath.path)
         {
             return bundlePath
         }
@@ -157,12 +158,18 @@ actor MediaExtractor {
         ]
 
         for path in localPaths {
-            if FileManager.default.fileExists(atPath: path) {
+            if fileManager.isExecutableFile(atPath: path) {
                 return URL(fileURLWithPath: path)
             }
         }
 
         return URL(fileURLWithPath: "/usr/bin/false")
+    }
+    
+    /// Checks if yt-dlp is available.
+    var isYtDlpAvailable: Bool {
+        let path = ytDlpPath.path
+        return path != "/usr/bin/false" && FileManager.default.isExecutableFile(atPath: path)
     }
 
     // MARK: - Media Extraction
@@ -193,6 +200,12 @@ actor MediaExtractor {
 
     /// Extracts media info using yt-dlp.
     private func extractWithYtDlp(from urlString: String) async throws -> MediaInfo {
+        // Check if yt-dlp exists
+        let path = ytDlpPath.path
+        guard path != "/usr/bin/false" && FileManager.default.isExecutableFile(atPath: path) else {
+            throw MediaExtractorError.ytdlpNotFound
+        }
+        
         let process = Process()
         process.executableURL = ytDlpPath
         process.arguments = [
@@ -210,22 +223,23 @@ actor MediaExtractor {
         process.waitUntilExit()
 
         let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
 
         guard process.terminationStatus == 0,
             let json = try? JSONSerialization.jsonObject(with: outputData) as? [String: Any]
         else {
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
             let errorString = String(data: errorData, encoding: .utf8) ?? "Unknown error"
+            print("MediaExtractor: yt-dlp failed - \(errorString)")
             throw MediaExtractorError.extractionFailed(errorString)
-        }
-
-        guard let directURL = json["url"] as? String else {
-            throw MediaExtractorError.noDirectURL
         }
 
         let title = json["title"] as? String ?? "video"
         let ext = json["ext"] as? String ?? "mp4"
         let fileSize = json["filesize"] as? Int64 ?? json["filesize_approx"] as? Int64
+        
+        // For YouTube and similar sites, there's no direct URL - we need to use yt-dlp to download
+        // Store the original URL as the "directURL" and mark it as needing yt-dlp download
+        let directURL = json["url"] as? String ?? urlString
         let isHLS = ext == "m3u8" || directURL.contains(".m3u8")
 
         // Parse available formats
