@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Nexus}",
+            "name": "Debug Nexus",
+            "target": "Nexus",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug Nexus"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Nexus}",
+            "name": "Release Nexus",
+            "target": "Nexus",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release Nexus"
+        }
+    ]
+}
