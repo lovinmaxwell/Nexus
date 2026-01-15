@@ -236,13 +236,18 @@
 - [x] Reconstruct TaskCoordinator from persisted state
 - [x] Resume threads from currentOffset
 - [ ] HEAD request validation before resume
-- [ ] ETag/Last-Modified mismatch detection
-- [ ] User alert on file change detection
+- [x] ETag/Last-Modified mismatch detection
+- [x] User alert on file change detection
 
 ---
 
 ## Scheduler Features
 
+## Scheduler- [x] Implement Scheduler & Queue System (FR-09)
+    - [x] `QueueManager` class (Core/QueueManager.swift)
+    - [x] `DownloadQueue` model (Core/Queue/DownloadQueue.swift)
+    - [x] Task Status `pending`
+    - [x] Queue-aware `DownloadManager`
 ### Queue Processing
 - [ ] QueueManager class
 - [ ] Observe task state changes

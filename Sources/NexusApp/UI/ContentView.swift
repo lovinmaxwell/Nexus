@@ -1,5 +1,5 @@
-import SwiftUI
 import SwiftData
+import SwiftUI
 
 enum DownloadCategory: String, CaseIterable, Identifiable {
     case all = "All Downloads"
@@ -8,9 +8,9 @@ enum DownloadCategory: String, CaseIterable, Identifiable {
     case music = "Music"
     case video = "Video"
     case programs = "Programs"
-    
+
     var id: String { rawValue }
-    
+
     var icon: String {
         switch self {
         case .all: return "arrow.down.circle.fill"
@@ -21,18 +21,19 @@ enum DownloadCategory: String, CaseIterable, Identifiable {
         case .programs: return "app.fill"
         }
     }
-    
+
     var extensions: Set<String> {
         switch self {
         case .all: return []
         case .compressed: return ["zip", "rar", "7z", "tar", "gz", "bz2", "xz", "dmg", "pkg"]
-        case .documents: return ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "rtf", "odt"]
+        case .documents:
+            return ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "rtf", "odt"]
         case .music: return ["mp3", "wav", "flac", "aac", "m4a", "ogg", "wma", "aiff"]
         case .video: return ["mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "m4v", "mpeg"]
         case .programs: return ["exe", "msi", "app", "deb", "rpm", "apk", "ipa"]
         }
     }
-    
+
     func matches(_ task: DownloadTask) -> Bool {
         if self == .all { return true }
         let ext = (task.destinationPath as NSString).pathExtension.lowercased()
@@ -78,7 +79,7 @@ struct ContentView: View {
                         }
                     }
                 }
-                
+
                 Section("Downloads") {
                     ForEach(filteredTasks) { task in
                         DownloadRowView(task: task)
@@ -98,10 +99,13 @@ struct ContentView: View {
             }
         } detail: {
             if let selectedID = selection,
-               let task = filteredTasks.first(where: { $0.id == selectedID }) {
+                let task = filteredTasks.first(where: { $0.id == selectedID })
+            {
                 TaskDetailView(task: task)
             } else {
-                ContentUnavailableView("Select a Download", systemImage: "arrow.down.circle", description: Text("Choose a download from the sidebar"))
+                ContentUnavailableView(
+                    "Select a Download", systemImage: "arrow.down.circle",
+                    description: Text("Choose a download from the sidebar"))
             }
         }
         .sheet(isPresented: $showAddSheet) {
@@ -117,7 +121,9 @@ struct ContentView: View {
     private func addDownload(urlString: String, path: String) {
         Task {
             do {
-                if let taskID = try await DownloadManager.shared.addMediaDownload(urlString: urlString, destinationFolder: path) {
+                if let taskID = try await DownloadManager.shared.addMediaDownload(
+                    urlString: urlString, destinationFolder: path)
+                {
                     await DownloadManager.shared.startDownload(taskID: taskID)
                 }
             } catch {
@@ -174,6 +180,9 @@ struct DownloadRowView: View {
             case .paused:
                 Image(systemName: "pause.circle.fill")
                     .foregroundStyle(.orange)
+            case .pending:
+                Image(systemName: "clock.fill")
+                    .foregroundStyle(.gray)
             case .running:
                 Image(systemName: "arrow.down.circle.fill")
                     .foregroundStyle(.blue)
@@ -192,6 +201,7 @@ struct DownloadRowView: View {
         switch task.status {
         case .paused: return "Paused"
         case .running: return "Downloading..."
+        case .pending: return "Pending"
         case .complete: return "Complete"
         case .error: return "Error"
         }
@@ -257,7 +267,8 @@ struct TaskDetailView: View {
 
                     if task.status == .complete {
                         Button("Show in Finder") {
-                            NSWorkspace.shared.selectFile(task.destinationPath, inFileViewerRootedAtPath: "")
+                            NSWorkspace.shared.selectFile(
+                                task.destinationPath, inFileViewerRootedAtPath: "")
                         }
                         .buttonStyle(.bordered)
                     }
@@ -272,6 +283,7 @@ struct TaskDetailView: View {
         switch task.status {
         case .paused: return "Paused"
         case .running: return "Downloading"
+        case .pending: return "Pending"
         case .complete: return "Complete"
         case .error: return "Error"
         }
@@ -295,8 +307,12 @@ struct SegmentVisualizationView: View {
                     .fill(Color.gray.opacity(0.2))
 
                 ForEach(segments) { segment in
-                    let startRatio = totalSize > 0 ? CGFloat(segment.startOffset) / CGFloat(totalSize) : 0
-                    let progressRatio = totalSize > 0 ? CGFloat(segment.currentOffset - segment.startOffset) / CGFloat(totalSize) : 0
+                    let startRatio =
+                        totalSize > 0 ? CGFloat(segment.startOffset) / CGFloat(totalSize) : 0
+                    let progressRatio =
+                        totalSize > 0
+                        ? CGFloat(segment.currentOffset - segment.startOffset) / CGFloat(totalSize)
+                        : 0
 
                     RoundedRectangle(cornerRadius: 2)
                         .fill(segment.isComplete ? Color.green : Color.blue)
@@ -353,7 +369,9 @@ struct AddDownloadSheet: View {
 
     private var isMediaURL: Bool {
         let mediaHosts = ["youtube.com", "youtu.be", "vimeo.com", "dailymotion.com", "twitch.tv"]
-        guard let url = URL(string: urlString), let host = url.host?.lowercased() else { return false }
+        guard let url = URL(string: urlString), let host = url.host?.lowercased() else {
+            return false
+        }
         return mediaHosts.contains { host.contains($0) }
     }
 
@@ -408,7 +426,9 @@ struct AddDownloadSheet: View {
         .padding()
         .frame(width: 400)
         .onAppear {
-            let downloadsPath = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first?.path ?? "/tmp"
+            let downloadsPath =
+                FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first?.path
+                ?? "/tmp"
             destinationPath = downloadsPath
         }
     }

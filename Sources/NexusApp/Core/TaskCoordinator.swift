@@ -124,12 +124,14 @@ actor TaskCoordinator {
                 task.status = .complete
                 try context.save()
                 print("Download complete!")
+                await DownloadManager.shared.notifyTaskComplete(taskID: taskID)
             }
 
         } catch {
             print("Download error: \(error)")
             task.status = .error
             try? context.save()
+            await DownloadManager.shared.notifyTaskFailed(taskID: taskID)
         }
 
         try? await fileHandler?.close()

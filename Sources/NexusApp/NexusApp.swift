@@ -1,6 +1,6 @@
-import SwiftUI
-import SwiftData
 import AppKit
+import SwiftData
+import SwiftUI
 
 @main
 struct NexusApp: App {
@@ -22,8 +22,11 @@ struct NexusApp: App {
     init() {
         NSApplication.shared.setActivationPolicy(.regular)
         DownloadManager.shared.setModelContainer(sharedModelContainer)
-        QueueManager.shared.setModelContainer(sharedModelContainer)
-        QueueManager.shared.startProcessing()
+        DownloadManager.shared.setModelContainer(sharedModelContainer)
+        // QueueManager context is set inside DownloadManager.setModelContainer, but explicit setting is fine too if we change naming.
+        // But better to remove redundant call or fix it.
+        // QueueManager.shared.setModelContext(sharedModelContainer.mainContext)
+        QueueManager.shared.processAllQueues()
         BrowserExtensionListener.shared.startListening()
     }
 

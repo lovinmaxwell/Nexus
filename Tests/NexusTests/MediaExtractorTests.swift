@@ -18,9 +18,9 @@ final class MediaExtractorTests: XCTestCase {
     }
 
     func testGetDirectURLWithBundledScript() async throws {
-        let url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        let _ = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 
-        let extractor = MediaExtractor.shared
+        let _ = MediaExtractor.shared
         // The mock script's -g behavior isn't explicitly mocked in my simple script
         // unless I update the script to handle -g/-f.
         // Looking at the dummy script: it only handles --dump-json.

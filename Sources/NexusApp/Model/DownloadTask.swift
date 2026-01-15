@@ -1,31 +1,35 @@
 import Foundation
 import SwiftData
 
-enum TaskStatus: Int, Codable {
+public enum TaskStatus: Int, Codable {
     case paused = 0
     case running = 1
     case complete = 2
     case error = 3
+    case pending = 4
 }
 
 @Model
-final class DownloadTask {
-    var id: UUID
-    var sourceURL: URL
-    var destinationPath: String
-    var totalSize: Int64
-    var status: TaskStatus
-    var eTag: String?
-    var lastModified: Date?
-    var httpCookies: Data?
-    var createdDate: Date
-    
+public final class DownloadTask {
+    public var id: UUID
+    public var sourceURL: URL
+    public var destinationPath: String
+    public var totalSize: Int64
+    public var status: TaskStatus
+    public var eTag: String?
+    public var lastModified: Date?
+    public var httpCookies: Data?
+    public var createdDate: Date
+
     @Relationship(deleteRule: .cascade, inverse: \FileSegment.downloadTask)
-    var segments: [FileSegment] = []
-    
-    var queue: DownloadQueue?
-    
-    init(id: UUID = UUID(), sourceURL: URL, destinationPath: String, totalSize: Int64 = 0, status: TaskStatus = .paused, createdDate: Date = Date()) {
+    public var segments: [FileSegment] = []
+
+    public var queue: DownloadQueue?
+
+    public init(
+        id: UUID = UUID(), sourceURL: URL, destinationPath: String, totalSize: Int64 = 0,
+        status: TaskStatus = .paused, createdDate: Date = Date()
+    ) {
         self.id = id
         self.sourceURL = sourceURL
         self.destinationPath = destinationPath
