@@ -1,0 +1,30 @@
+{
+    "manifest_version": 3,
+    "name": "Nexus Downloader",
+    "version": "1.0",
+    "description": "Integration for Nexus Download Manager",
+    "icons": {
+        "48": "Resources/icon-48.png",
+        "96": "Resources/icon-96.png",
+        "128": "Resources/icon-128.png",
+        "256": "Resources/icon-256.png"
+    },
+    "background": {
+        "service_worker": "background.js"
+    },
+    "permissions": [
+        "downloads",
+        "nativeMessaging",
+        "contextMenus"
+    ],
+    "host_permissions": [
+        "<all_urls>"
+    ],
+    "action": {
+        "default_popup": "popup.html",
+        "default_icon": {
+            "16": "Resources/icon-16.png",
+            "32": "Resources/icon-32.png"
+        }
+    }
+}

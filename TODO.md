@@ -40,11 +40,11 @@
 - [x] FileWriter actor for thread-safe disk writes
 
 ### FR-06: Browser Integration [P0]
-- [ ] **Safari Web Extension**
-  - [ ] Extension bundled in app
-  - [ ] manifest.json with nativeMessaging permission
-  - [ ] browser.runtime.sendNativeMessage implementation
-  - [ ] Download link interception
+- [x] **Safari Web Extension**
+  - [x] Extension bundled in app
+  - [x] manifest.json with nativeMessaging permission
+  - [x] browser.runtime.sendNativeMessage implementation
+  - [x] Download link interception
 - [x] **Chrome Extension**
   - [x] Extension package (manifest.json, background.js, popup)
   - [x] Native Messaging Host binary (NexusHost)
