@@ -17,11 +17,13 @@ final class DownloadTask {
     var status: TaskStatus
     var eTag: String?
     var lastModified: Date?
-    var httpCookies: Data? // Serialized cookies
+    var httpCookies: Data?
     var createdDate: Date
     
     @Relationship(deleteRule: .cascade, inverse: \FileSegment.downloadTask)
     var segments: [FileSegment] = []
+    
+    var queue: DownloadQueue?
     
     init(id: UUID = UUID(), sourceURL: URL, destinationPath: String, totalSize: Int64 = 0, status: TaskStatus = .paused, createdDate: Date = Date()) {
         self.id = id

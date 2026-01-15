@@ -12,9 +12,11 @@ let package = Package(
         .executable(
             name: "Nexus",
             targets: ["NexusApp"]),
+        .executable(
+            name: "NexusHost",
+            targets: ["NexusHost"]),
     ],
     dependencies: [
-        // Dependencies will be added here (e.g. SwiftCurl if needed later)
     ],
     targets: [
         .executableTarget(
@@ -24,6 +26,11 @@ let package = Package(
             resources: [
                 .process("Resources") 
             ]
+        ),
+        .executableTarget(
+            name: "NexusHost",
+            dependencies: [],
+            path: "Sources/NexusHost"
         ),
         .testTarget(
             name: "NexusTests",

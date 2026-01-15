@@ -1,0 +1,9 @@
+{
+  "name": "com.nexus.host",
+  "description": "Nexus Download Manager Native Messaging Host",
+  "path": "/Applications/Nexus.app/Contents/MacOS/NexusHost",
+  "type": "stdio",
+  "allowed_extensions": [
+    "nexus@example.com"
+  ]
+}

@@ -9,7 +9,8 @@
 ### FR-01: Protocol Support [P0]
 - [x] HTTP protocol support
 - [x] HTTPS protocol support
-- [ ] FTP protocol support
+- [x] FTP protocol support (FTPHandler with curl)
+- [x] NetworkHandlerFactory for protocol selection
 - [ ] MMS protocol support
 
 ### FR-02: Dynamic File Segmentation [P0]
@@ -44,21 +45,27 @@
   - [ ] manifest.json with nativeMessaging permission
   - [ ] browser.runtime.sendNativeMessage implementation
   - [ ] Download link interception
-- [ ] **Chrome Extension**
-  - [ ] Extension package
-  - [ ] Native Messaging Host binary (NexusHost)
-  - [ ] Manifest at ~/Library/Application Support/Google/Chrome/NativeMessagingHosts/
-  - [ ] Download link interception
-- [ ] **Firefox Extension**
-  - [ ] Extension package
-  - [ ] Native Messaging Host binary
-  - [ ] Manifest at ~/Library/Application Support/Mozilla/NativeMessagingHosts/
-  - [ ] Download link interception
-- [ ] **Native Messaging Protocol**
-  - [ ] 32-bit length header + JSON payload parsing
-  - [ ] Handle: url, cookies, referrer, userAgent from browser
-  - [ ] IPC via CFMessagePort or XPC to main app
-  - [ ] Response confirmation to browser
+- [x] **Chrome Extension**
+  - [x] Extension package (manifest.json, background.js, popup)
+  - [x] Native Messaging Host binary (NexusHost)
+  - [x] Manifest at ~/Library/Application Support/Google/Chrome/NativeMessagingHosts/
+  - [x] Download link interception
+  - [x] Context menu integration
+- [x] **Firefox Extension**
+  - [x] Extension package (manifest.json, background.js, popup)
+  - [x] Native Messaging Host binary
+  - [x] Manifest at ~/Library/Application Support/Mozilla/NativeMessagingHosts/
+  - [x] Download link interception
+  - [x] Context menu integration
+- [x] **Native Messaging Protocol**
+  - [x] 32-bit length header + JSON payload parsing (NexusHost)
+  - [x] Handle: url, cookies, referrer, userAgent from browser
+  - [x] IPC via DistributedNotificationCenter to main app
+  - [x] Response confirmation to browser
+- [x] **BrowserExtensionListener** in main app
+  - [x] Monitor pending downloads directory
+  - [x] Process incoming requests from browser
+  - [x] Integrate with DownloadManager
 
 ### FR-07: Video Stream Detection [P1]
 - [ ] Detect M3U8 streams in browser

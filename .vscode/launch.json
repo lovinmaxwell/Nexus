@@ -19,6 +19,26 @@
             "target": "Nexus",
             "configuration": "release",
             "preLaunchTask": "swift: Build Release Nexus"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Nexus}",
+            "name": "Debug NexusHost",
+            "target": "NexusHost",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug NexusHost"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Nexus}",
+            "name": "Release NexusHost",
+            "target": "NexusHost",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release NexusHost"
         }
     ]
 }

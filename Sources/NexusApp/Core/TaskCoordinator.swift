@@ -4,7 +4,7 @@ import SwiftData
 actor TaskCoordinator {
     let taskID: UUID
     let modelContainer: ModelContainer
-    private let networkHandler: NetworkHandler
+    private var networkHandler: NetworkHandler?
     private var fileHandler: SparseFileHandler?
 
     private var isRunning = false
@@ -20,13 +20,12 @@ actor TaskCoordinator {
         var bytesDownloaded: Int64
         var startTime: Date
         var lastUpdateTime: Date
-        var currentSpeed: Double // bytes per second
+        var currentSpeed: Double
     }
 
-    init(taskID: UUID, container: ModelContainer, networkHandler: NetworkHandler = URLSessionHandler(), maxConnections: Int = 8) {
+    init(taskID: UUID, container: ModelContainer, maxConnections: Int = 8) {
         self.taskID = taskID
         self.modelContainer = container
-        self.networkHandler = networkHandler
         self.maxConnections = min(max(maxConnections, 1), 32)
     }
 
@@ -63,7 +62,14 @@ actor TaskCoordinator {
 
         do {
             fileHandler = try SparseFileHandler(path: task.destinationPath)
-            let meta = try await networkHandler.headRequest(url: task.sourceURL)
+
+            // Use NetworkHandlerFactory to get appropriate handler for the URL scheme
+            networkHandler = NetworkHandlerFactory.handler(for: task.sourceURL)
+            guard let handler = networkHandler else {
+                throw NetworkError.connectionFailed
+            }
+
+            let meta = try await handler.headRequest(url: task.sourceURL)
 
             task.totalSize = meta.contentLength
             task.eTag = meta.eTag
@@ -171,7 +177,10 @@ actor TaskCoordinator {
         )
 
         do {
-            let stream = try await networkHandler.downloadRange(url: url, start: start, end: end)
+            guard let handler = networkHandler else {
+                throw NetworkError.connectionFailed
+            }
+            let stream = try await handler.downloadRange(url: url, start: start, end: end)
             var currentOffset = start
 
             for try await chunk in stream {
