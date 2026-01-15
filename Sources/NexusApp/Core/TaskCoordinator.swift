@@ -79,6 +79,26 @@ actor TaskCoordinator {
 
             let meta = try await handler.headRequest(url: task.sourceURL)
 
+            // Validate resume integrity
+            if task.segments.count > 0 && task.totalSize > 0 {
+                // Check ETag
+                if let savedETag = task.eTag, let serverETag = meta.eTag, savedETag != serverETag {
+                    print("ETag mismatch: Saved \(savedETag), Server \(serverETag)")
+                    throw NetworkError.fileModified
+                }
+
+                // Check Last-Modified
+                if let savedLastModified = task.lastModified,
+                    let serverLastModified = meta.lastModified,
+                    savedLastModified != serverLastModified
+                {
+                    print(
+                        "Last-Modified mismatch: Saved \(savedLastModified), Server \(serverLastModified)"
+                    )
+                    throw NetworkError.fileModified
+                }
+            }
+
             task.totalSize = meta.contentLength
             task.eTag = meta.eTag
             task.lastModified = meta.lastModified

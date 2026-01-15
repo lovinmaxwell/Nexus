@@ -30,8 +30,8 @@
 - [x] Persist byte offsets for every thread
 - [x] File segment map persistence
 - [x] Resume from exact position after crash/power failure
-- [ ] ETag validation on resume (detect file changes)
-- [ ] Last-Modified header validation on resume
+- [x] ETag validation on resume (detect file changes)
+- [x] Last-Modified header validation on resume
 
 ### FR-05: APFS Sparse Files [P1]
 - [x] SparseFileHandler implementation

@@ -7,6 +7,7 @@ enum NetworkError: Error {
     case invalidRange
     case serviceUnavailable
     case rangeNotSatisfiable
+    case fileModified
 }
 
 protocol NetworkHandler {
