@@ -11,8 +11,9 @@ actor MediaExtractor {
     }
 
     func isMediaURL(_ urlString: String) -> Bool {
+        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
         let mediaHosts = ["youtube.com", "youtu.be", "vimeo.com", "dailymotion.com", "twitch.tv"]
-        guard let url = URL(string: urlString), let host = url.host?.lowercased() else {
+        guard let url = URL(string: trimmed), let host = url.host?.lowercased() else {
             return false
         }
         return mediaHosts.contains { host.contains($0) }

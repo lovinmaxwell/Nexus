@@ -54,6 +54,8 @@ struct ContentView: View {
         tasks.filter { selectedCategory.matches($0) }
     }
 
+    @State private var showClearConfirmation = false
+
     var body: some View {
         NavigationSplitView {
             List(selection: $selection) {
@@ -92,8 +94,22 @@ struct ContentView: View {
             .navigationSplitViewColumnWidth(min: 280, ideal: 320)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
-                    Button(action: { showAddSheet = true }) {
-                        Label("Add Download", systemImage: "plus")
+                    HStack {
+                        Menu {
+                            Button("Clear Completed") {
+                                deleteTasks(completedOnly: true)
+                            }
+
+                            Button("Clear All...", role: .destructive) {
+                                showClearConfirmation = true
+                            }
+                        } label: {
+                            Label("Manage List", systemImage: "ellipsis.circle")
+                        }
+
+                        Button(action: { showAddSheet = true }) {
+                            Label("Add Download", systemImage: "plus")
+                        }
                     }
                 }
             }
@@ -112,6 +128,18 @@ struct ContentView: View {
             AddDownloadSheet(urlString: $newURLString) { urlString, path in
                 addDownload(urlString: urlString, path: path)
             }
+        }
+        .confirmationDialog(
+            "Are you sure you want to clear all downloads?",
+            isPresented: $showClearConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Clear All", role: .destructive) {
+                deleteTasks(completedOnly: false)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will stop all running downloads and remove them from the list.")
         }
         .onAppear {
             DownloadManager.shared.setModelContainer(modelContext.container)
@@ -132,11 +160,32 @@ struct ContentView: View {
         }
     }
 
+    private func deleteTasks(completedOnly: Bool) {
+        let targets = completedOnly ? tasks.filter { $0.status == .complete } : tasks
+
+        Task {
+            for task in targets {
+                if !completedOnly {
+                    // If clearing all, we must ensure active ones are cancelled
+                    await DownloadManager.shared.cancelDownload(taskID: task.id)
+                }
+                modelContext.delete(task)
+            }
+            // Clear selection if deleted
+            if let sel = selection, targets.contains(where: { $0.id == sel }) {
+                selection = nil
+            }
+        }
+    }
+
     private func deleteItems(offsets: IndexSet) {
         withAnimation {
             let tasksToDelete = offsets.map { filteredTasks[$0] }
-            for task in tasksToDelete {
-                modelContext.delete(task)
+            Task {
+                for task in tasksToDelete {
+                    await DownloadManager.shared.cancelDownload(taskID: task.id)
+                    modelContext.delete(task)
+                }
             }
         }
     }
@@ -368,8 +417,9 @@ struct AddDownloadSheet: View {
     let onAdd: (String, String) -> Void
 
     private var isMediaURL: Bool {
+        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
         let mediaHosts = ["youtube.com", "youtu.be", "vimeo.com", "dailymotion.com", "twitch.tv"]
-        guard let url = URL(string: urlString), let host = url.host?.lowercased() else {
+        guard let url = URL(string: trimmed), let host = url.host?.lowercased() else {
             return false
         }
         return mediaHosts.contains { host.contains($0) }

@@ -85,10 +85,29 @@ class DownloadManager {
         guard let container = modelContainer else { return nil }
         let context = container.mainContext
 
+        var isDir: ObjCBool = false
+        var finalPath = destinationPath
+
+        if FileManager.default.fileExists(atPath: destinationPath, isDirectory: &isDir) {
+            if isDir.boolValue {
+                finalPath = (destinationPath as NSString).appendingPathComponent(
+                    url.lastPathComponent)
+            }
+        } else {
+            // Path doesn't exist. If it looks like a directory (no extension?), maybe treat as file?
+            // Or maybe we should assume it IS the full path desired.
+            // BUT, coming from addMediaDownload fallback, it passes destinationFolder which is likely a directory.
+
+            // Simple heuristic: if destinationPath ends in /, it's a dir (though strings usually don't).
+            // Better: Check if the user INTENDED a folder.
+            // For now, let's assume if it is existing directory, we append.
+            // If it doesn't exist, we use it as the file path.
+        }
+
         // Get Default Queue
         guard let defaultQueue = QueueManager.shared.getDefaultQueue() else { return nil }
 
-        let task = DownloadTask(sourceURL: url, destinationPath: destinationPath)
+        let task = DownloadTask(sourceURL: url, destinationPath: finalPath)
         task.status = .pending
         task.queue = defaultQueue
 
@@ -106,10 +125,12 @@ class DownloadManager {
     func addMediaDownload(urlString: String, destinationFolder: String) async throws -> UUID? {
         guard let container = modelContainer else { return nil }
 
+        let trimmedURLString = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+
         let extractor = MediaExtractor.shared
 
-        if await extractor.isMediaURL(urlString) {
-            let info = try await extractor.extractMediaInfo(from: urlString)
+        if await extractor.isMediaURL(trimmedURLString) {
+            let info = try await extractor.extractMediaInfo(from: trimmedURLString)
             let sanitizedTitle = info.title.replacingOccurrences(of: "/", with: "-")
                 .replacingOccurrences(of: ":", with: "-")
             let filename = "\(sanitizedTitle).\(info.fileExtension)"
@@ -138,7 +159,7 @@ class DownloadManager {
 
             return task.id
         } else {
-            guard let url = URL(string: urlString) else { return nil }
+            guard let url = URL(string: trimmedURLString) else { return nil }
             return addDownload(url: url, destinationPath: destinationFolder)
         }
     }
