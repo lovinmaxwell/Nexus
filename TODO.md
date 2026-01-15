@@ -17,8 +17,8 @@
 - [x] Implement "In-Half" division rule algorithm
 - [x] Split largest active segment when thread becomes free
 - [x] Connection reuse without additional handshakes
-- [ ] HTTP 416 (Range Not Satisfiable) error handling with exponential backoff
-- [ ] HTTP 503 (Service Unavailable) error handling with exponential backoff
+- [x] HTTP 416 (Range Not Satisfiable) error handling with exponential backoff
+- [x] HTTP 503 (Service Unavailable) error handling with exponential backoff
 
 ### FR-03: Multi-Connection Downloads [P0]
 - [x] Support up to 32 simultaneous connections per file
