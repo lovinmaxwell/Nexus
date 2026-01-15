@@ -11,7 +11,7 @@
 - [x] HTTPS protocol support
 - [x] FTP protocol support (FTPHandler with curl)
 - [x] NetworkHandlerFactory for protocol selection
-- [ ] MMS protocol support
+- [x] MMS protocol support
 
 ### FR-02: Dynamic File Segmentation [P0]
 - [x] Implement "In-Half" division rule algorithm
