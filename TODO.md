@@ -87,13 +87,18 @@
 - [x] yt-dlp auto-update mechanism (signature-checked)
 
 ### FR-09: Scheduler & Queue System [P2]
-- [ ] QueueManager implementation
-- [ ] Named queues (e.g., "Nightly Sync", "Large ISOs")
-- [ ] Configurable concurrent downloads per queue (maxConcurrentDownloads)
-- [ ] Priority-based task selection
-- [ ] Sequential queue processing mode
-- [ ] Parallel queue processing mode
-- [ ] Queue state observation and auto-progression
+- [x] QueueManager implementation
+- [x] Named queues (e.g., "Nightly Sync", "Large ISOs")
+- [x] Configurable concurrent downloads per queue (maxConcurrentDownloads)
+- [x] Priority-based task selection
+- [x] Sequential queue processing mode
+- [x] Parallel queue processing mode
+- [x] Queue state observation and auto-progression
+- [x] Synchronization Queues: Periodic URL check (HEAD request)
+- [x] Synchronization Queues: Compare Last-Modified/Content-Length with stored metadata
+- [x] Synchronization Queues: Auto re-download on file change
+- [x] Synchronization Queues: Timer-based checks (app running)
+- [ ] Note: BGAppRefreshTask not available on macOS (iOS only), using Timer-based approach
 
 ### FR-10: Traffic Shaping / Speed Limiting [P2]
 - [x] Token Bucket algorithm implementation
@@ -249,24 +254,24 @@
     - [x] Task Status `pending`
     - [x] Queue-aware `DownloadManager`
 ### Queue Processing
-- [ ] QueueManager class
-- [ ] Observe task state changes
-- [ ] Auto-start next pending task when slot available
-- [ ] Respect maxConcurrentDownloads limit
-- [ ] Handle Complete/Error state transitions
+- [x] QueueManager class
+- [x] Observe task state changes
+- [x] Auto-start next pending task when slot available
+- [x] Respect maxConcurrentDownloads limit
+- [x] Handle Complete/Error state transitions
 
 ### Synchronization Queues
-- [ ] Periodic URL check (HEAD request)
-- [ ] Compare Last-Modified/Content-Length with stored metadata
-- [ ] Auto re-download on file change
-- [ ] BGAppRefreshTask for background checks (app not running)
-- [ ] Timer-based checks (app running)
+- [x] Periodic URL check (HEAD request)
+- [x] Compare Last-Modified/Content-Length with stored metadata
+- [x] Auto re-download on file change
+- [x] Timer-based checks (app running)
+- [ ] Note: BGAppRefreshTask not available on macOS (iOS only), using Timer-based approach
 
 ### Post-Process Actions
-- [ ] System sleep on queue completion
-- [ ] System shutdown on queue completion
-- [ ] Run custom script on completion
-- [ ] Notification on completion
+- [x] System sleep on queue completion
+- [x] System shutdown on queue completion
+- [x] Run custom script on completion
+- [x] Notification on completion
 
 ---
 
@@ -320,15 +325,15 @@
 | FR-06 Browser Integration | 16 | 16 | 100% |
 | FR-07 Video Detection | 5 | 5 | 100% |
 | FR-08 yt-dlp | 10 | 10 | 100% |
-| FR-09 Scheduler | 4 | 7 | 57% |
+| FR-09 Scheduler | 15 | 16 | 94% |
 | FR-10 Speed Limiting | 6 | 6 | 100% |
 | FR-11 Site Grabber | 0 | 6 | 0% |
 | NFR | 2 | 14 | 14% |
 | UI | 14 | 34 | 41% |
 | Architecture | 11 | 27 | 41% |
-| Testing | 7 | 10 | 70% |
+| Testing | 12 | 15 | 80% |
 
-**Overall Progress: ~65%**
+**Overall Progress: ~70%**
 
 ---
 

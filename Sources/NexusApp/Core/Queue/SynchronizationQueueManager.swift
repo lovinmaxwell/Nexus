@@ -1,45 +1,32 @@
 import Foundation
 import SwiftData
-import BackgroundTasks
 
 /// Manages synchronization queues that periodically check for file updates on the server.
 ///
 /// Synchronization queues monitor completed downloads and automatically re-download files
 /// if they have been modified on the server (detected via HEAD requests comparing
 /// Last-Modified or Content-Length headers).
+///
+/// Note: On macOS, background tasks are not available via BGAppRefreshTask (iOS only).
+/// This implementation uses Timer-based checks when the app is running.
 @MainActor
 class SynchronizationQueueManager: ObservableObject {
     static let shared = SynchronizationQueueManager()
     
     private var modelContext: ModelContext?
     private var foregroundTimer: Timer?
-    private let backgroundTaskIdentifier = "com.projectnexus.sync.check"
     
-    private init() {
-        registerBackgroundTask()
-    }
+    private init() {}
     
     func setModelContext(_ context: ModelContext) {
         self.modelContext = context
     }
     
-    /// Registers the background task for periodic synchronization checks.
-    private func registerBackgroundTask() {
-        BGTaskScheduler.shared.register(
-            forTaskWithIdentifier: backgroundTaskIdentifier,
-            using: nil
-        ) { [weak self] task in
-            guard let self = self else { return }
-            Task { @MainActor in
-                await self.handleBackgroundSync(task: task as! BGAppRefreshTask)
-            }
-        }
-    }
-    
     /// Starts periodic synchronization checks for all active synchronization queues.
     ///
-    /// When the app is running, this uses a Timer. When the app is in the background,
-    /// it schedules BGAppRefreshTask.
+    /// On macOS, this uses a Timer-based approach since BGAppRefreshTask is not available.
+    /// The timer runs while the app is active and checks synchronization queues at their
+    /// configured intervals.
     func startSynchronizationChecks() {
         stopSynchronizationChecks()
         
@@ -53,9 +40,6 @@ class SynchronizationQueueManager: ObservableObject {
             let syncQueues = try context.fetch(syncQueuesDescriptor)
             
             guard !syncQueues.isEmpty else { return }
-            
-            // Schedule background task
-            scheduleBackgroundTask()
             
             // Start foreground timer (checks every 5 minutes minimum, or queue's checkInterval)
             let minInterval = syncQueues.map { $0.checkInterval }.min() ?? 3600.0
@@ -80,34 +64,6 @@ class SynchronizationQueueManager: ObservableObject {
     func stopSynchronizationChecks() {
         foregroundTimer?.invalidate()
         foregroundTimer = nil
-        BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: backgroundTaskIdentifier)
-    }
-    
-    /// Schedules a background app refresh task for synchronization checks.
-    private func scheduleBackgroundTask() {
-        let request = BGAppRefreshTaskRequest(identifier: backgroundTaskIdentifier)
-        request.earliestBeginDate = Date(timeIntervalSinceNow: 3600)  // Schedule for 1 hour from now
-        
-        do {
-            try BGTaskScheduler.shared.submit(request)
-            print("SynchronizationQueueManager: Background task scheduled")
-        } catch {
-            print("SynchronizationQueueManager: Failed to schedule background task - \(error)")
-        }
-    }
-    
-    /// Handles background synchronization when the app is not running.
-    private func handleBackgroundSync(task: BGAppRefreshTask) async {
-        task.expirationHandler = {
-            task.setTaskCompleted(success: false)
-        }
-        
-        await checkAllSynchronizationQueues()
-        
-        // Schedule next background check
-        scheduleBackgroundTask()
-        
-        task.setTaskCompleted(success: true)
     }
     
     /// Checks all active synchronization queues for file updates.

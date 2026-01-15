@@ -88,10 +88,27 @@ class QueueManager: ObservableObject {
     }
 
     func taskDidComplete(_ task: DownloadTask) {
-        Task { @MainActor in processAllQueues() }
+        Task { @MainActor in
+            processAllQueues()
+            checkQueueCompletion(task: task)
+        }
     }
 
     func taskDidFail(_ task: DownloadTask) {
         Task { @MainActor in processAllQueues() }
+    }
+    
+    /// Checks if the queue containing the task is complete and executes post-process actions.
+    ///
+    /// - Parameter task: The task that just completed
+    private func checkQueueCompletion(task: DownloadTask) {
+        guard let context = modelContext else { return }
+        guard let queue = task.queue else { return }
+        
+        // Check if queue is complete (all tasks done)
+        if queue.isComplete && !queue.postProcessExecuted {
+            print("QueueManager: Queue '\(queue.name)' is complete. Executing post-process action...")
+            PostProcessActionExecutor.shared.executePostProcessAction(for: queue, context: context)
+        }
     }
 }
