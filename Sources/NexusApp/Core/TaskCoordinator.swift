@@ -17,10 +17,26 @@ actor TaskCoordinator {
     private var persistenceTask: Task<Void, Never>?
 
     struct SegmentProgress {
+        // Atomic counter for thread-safe updates (TaskCoordinator is an actor, so this is safe)
         var bytesDownloaded: Int64
         var startTime: Date
         var lastUpdateTime: Date
-        var currentSpeed: Double
+        
+        var currentSpeed: Double {
+            let elapsed = lastUpdateTime.timeIntervalSince(startTime)
+            return elapsed > 0 ? Double(bytesDownloaded) / elapsed : 0.0
+        }
+        
+        init(bytesDownloaded: Int64 = 0, startTime: Date = Date(), lastUpdateTime: Date = Date()) {
+            self.bytesDownloaded = bytesDownloaded
+            self.startTime = startTime
+            self.lastUpdateTime = lastUpdateTime
+        }
+        
+        mutating func addBytes(_ bytes: Int64) {
+            bytesDownloaded += bytes
+            lastUpdateTime = Date()
+        }
     }
 
     init(
@@ -251,12 +267,11 @@ actor TaskCoordinator {
             return true
         }
 
-        segmentProgress[segmentID] = SegmentProgress(
-            bytesDownloaded: 0,
-            startTime: Date(),
-            lastUpdateTime: Date(),
-            currentSpeed: 0
-        )
+                segmentProgress[segmentID] = SegmentProgress(
+                    bytesDownloaded: 0,
+                    startTime: Date(),
+                    lastUpdateTime: Date()
+                )
 
         var retryDelay: TimeInterval = 1.0
         let maxRetryDelay: TimeInterval = 60.0
@@ -308,13 +323,9 @@ actor TaskCoordinator {
                     currentOffset += Int64(chunk.count)
                     segment.currentOffset = currentOffset
 
+                    // Update atomic counter (thread-safe)
                     if var progress = segmentProgress[segmentID] {
-                        progress.bytesDownloaded += Int64(chunk.count)
-                        progress.lastUpdateTime = Date()
-                        let elapsed = progress.lastUpdateTime.timeIntervalSince(progress.startTime)
-                        if elapsed > 0 {
-                            progress.currentSpeed = Double(progress.bytesDownloaded) / elapsed
-                        }
+                        progress.addBytes(Int64(chunk.count))
                         segmentProgress[segmentID] = progress
                     }
 

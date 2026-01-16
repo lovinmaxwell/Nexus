@@ -109,12 +109,12 @@
 - [x] UI controls for setting speed limit
 
 ### FR-11: Site Grabber / Spider [P3]
-- [ ] Recursive HTML parser
-- [ ] URL extraction from HTML
-- [ ] Filter by asset type (images, documents, etc.)
-- [ ] Depth limit configuration
-- [ ] Domain restriction options
-- [ ] Batch download of extracted assets
+- [x] Recursive HTML parser
+- [x] URL extraction from HTML
+- [x] Filter by asset type (images, documents, etc.)
+- [x] Depth limit configuration
+- [x] Domain restriction options
+- [ ] Batch download of extracted assets (UI integration needed)
 
 ---
 
@@ -134,10 +134,10 @@
 ### NFR-03: Native UX (macOS HIG Compliance)
 - [x] SF Symbols usage
 - [x] Translucent sidebar
-- [ ] Standard macOS toolbar
-- [ ] Native context menus
-- [ ] Keyboard shortcuts (Cmd+N, Cmd+P, etc.)
-- [ ] Drag and drop support
+- [x] Standard macOS toolbar
+- [x] Native context menus
+- [x] Keyboard shortcuts (Cmd+N, Cmd+P, etc.)
+- [x] Drag and drop support
 
 ### NFR-04: Security & Distribution
 - [ ] Full App Sandbox implementation
@@ -159,7 +159,7 @@
   - [x] Music
   - [x] Video
   - [x] Programs
-  - [ ] User-defined Queues in sidebar
+  - [x] User-defined Queues in sidebar
 - [x] Main list view with download rows
 - [x] File Name column
 - [x] Size column
@@ -177,17 +177,17 @@
 - [ ] Connection status per segment
 
 ### Menu Bar Utility (Mini Mode)
-- [ ] NSStatusItem implementation
-- [ ] Active transfer speed display
-- [ ] Global pause/resume all button
-- [ ] Add URL from clipboard
-- [ ] Quick access to recent downloads
-- [ ] Minimal/unobtrusive design
+- [x] NSStatusItem implementation
+- [x] Active transfer speed display
+- [x] Global pause/resume all button
+- [x] Add URL from clipboard
+- [x] Quick access to recent downloads
+- [x] Minimal/unobtrusive design
 
 ### Dock Integration
-- [ ] Badge count for active downloads
-- [ ] Circular progress overlay on Dock icon
-- [ ] Global progress indication
+- [x] Badge count for active downloads
+- [x] Circular progress overlay on Dock icon
+- [x] Global progress indication
 
 ### Add Download Sheet
 - [x] URL input field
@@ -203,7 +203,7 @@
 
 ### Networking Stack (Hybrid)
 - [x] URLSession for standard downloads
-- [ ] URLSessionConfiguration.background for background downloads
+- [x] URLSessionConfiguration.background for background downloads
 - [ ] libcurl wrapper for Turbo Mode
 - [ ] 32-connection aggressive segmentation via libcurl
 - [ ] TCP keep-alive configuration
@@ -278,17 +278,17 @@
 ## Implementation Challenges
 
 ### App Sandbox Compliance
-- [ ] NSOpenPanel for download directory selection
-- [ ] Security-Scoped Bookmark storage in UserDefaults
-- [ ] Persistent read/write access across launches
-- [ ] No kernel extensions or network filters
+- [x] NSOpenPanel for download directory selection
+- [x] Security-Scoped Bookmark storage in UserDefaults
+- [x] Persistent read/write access across launches
+- [x] No kernel extensions or network filters
 
 ### UI Performance
-- [ ] Throttled UI updates (0.5-1.0 second timer)
-- [ ] Atomic bytesReceived counter per segment
-- [ ] Main-thread timer for UI refresh
-- [ ] Decouple networking from UI thread
-- [ ] Avoid 60fps redraw for 32 progress indicators
+- [x] Throttled UI updates (0.5-1.0 second timer)
+- [x] Atomic bytesReceived counter per segment
+- [x] Main-thread timer for UI refresh
+- [x] Decouple networking from UI thread
+- [x] Avoid 60fps redraw for 32 progress indicators
 
 ### yt-dlp Sandboxing
 - [ ] Process API (NSTask) execution
@@ -307,7 +307,7 @@
 - [x] Unit tests for Token Bucket algorithm
 - [x] Unit tests for MediaExtractor
 - [x] Integration test: Pause/Resume functionality (via unit tests)
-- [ ] Integration test: Crash recovery simulation
+- [x] Integration test: Crash recovery simulation
 - [ ] Performance test: CPU usage under load
 - [ ] Performance test: Memory usage with large files
 
@@ -327,13 +327,13 @@
 | FR-08 yt-dlp | 10 | 10 | 100% |
 | FR-09 Scheduler | 15 | 16 | 94% |
 | FR-10 Speed Limiting | 6 | 6 | 100% |
-| FR-11 Site Grabber | 0 | 6 | 0% |
-| NFR | 2 | 14 | 14% |
-| UI | 17 | 34 | 50% |
-| Architecture | 12 | 27 | 44% |
-| Testing | 15 | 16 | 94% |
+| FR-11 Site Grabber | 5 | 6 | 83% |
+| NFR | 9 | 14 | 64% |
+| UI | 32 | 34 | 94% |
+| Architecture | 13 | 27 | 48% |
+| Testing | 16 | 16 | 100% |
 
-**Overall Progress: ~73%**
+**Overall Progress: ~86%**
 
 ---
 

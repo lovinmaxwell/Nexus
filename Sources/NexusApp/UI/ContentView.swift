@@ -88,6 +88,7 @@ enum DownloadCategory: String, CaseIterable, Identifiable {
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \DownloadTask.createdDate, order: .reverse) private var tasks: [DownloadTask]
+    @Query(sort: \DownloadQueue.name) private var queues: [DownloadQueue]
     @ObservedObject private var speedLimiter = SpeedLimiter.shared
 
     @State private var selection: UUID?
@@ -97,6 +98,7 @@ struct ContentView: View {
     @State private var showSpeedLimitPopover = false
     @State private var customSpeedLimit: Double = 1.0
     @State private var customSpeedUnit: SpeedUnit = .mbps
+    @State private var showQueueManager = false
 
     var filteredTasks: [DownloadTask] {
         tasks.filter { selectedCategory.matches($0) }
@@ -129,11 +131,87 @@ struct ContentView: View {
                         }
                     }
                 }
+                
+                Section("Queues") {
+                    ForEach(queues) { queue in
+                        let queueTasks = tasks.filter { $0.queue?.id == queue.id }
+                        let activeCount = queueTasks.filter { $0.status == .running }.count
+                        let pendingCount = queueTasks.filter { $0.status == .pending }.count
+                        
+                        HStack {
+                            Label(queue.name, systemImage: "list.bullet.rectangle")
+                            Spacer()
+                            if activeCount > 0 || pendingCount > 0 {
+                                HStack(spacing: 4) {
+                                    if activeCount > 0 {
+                                        Text("\(activeCount)")
+                                            .font(.caption2)
+                                            .foregroundStyle(.blue)
+                                    }
+                                    if pendingCount > 0 {
+                                        Text("\(pendingCount)")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.secondary.opacity(0.2))
+                                .clipShape(Capsule())
+                            }
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            // Filter by queue
+                            selectedCategory = .all
+                            selection = nil
+                        }
+                    }
+                    
+                    Button {
+                        showQueueManager = true
+                    } label: {
+                        Label("Manage Queues...", systemImage: "plus.circle")
+                    }
+                }
 
                 Section("Downloads") {
                     ForEach(filteredTasks) { task in
                         DownloadRowView(task: task)
                             .tag(task.id)
+                            .contextMenu {
+                                // Native context menu
+                                if task.status == .running {
+                                    Button("Pause") {
+                                        Task {
+                                            await DownloadManager.shared.pauseDownload(taskID: task.id)
+                                        }
+                                    }
+                                } else if task.status == .paused || task.status == .pending {
+                                    Button("Resume") {
+                                        Task {
+                                            await DownloadManager.shared.resumeDownload(taskID: task.id)
+                                        }
+                                    }
+                                }
+                                
+                                if task.status == .complete {
+                                    Button("Show in Finder") {
+                                        NSWorkspace.shared.selectFile(
+                                            task.destinationPath, inFileViewerRootedAtPath: "")
+                                    }
+                                }
+                                
+                                Divider()
+                                
+                                Button("Delete", role: .destructive) {
+                                    Task {
+                                        await DownloadManager.shared.cancelDownload(taskID: task.id)
+                                        modelContext.delete(task)
+                                    }
+                                }
+                                .keyboardShortcut(.delete)
+                            }
                     }
                     .onDelete(perform: deleteItems)
                 }
@@ -141,6 +219,41 @@ struct ContentView: View {
             .listStyle(.sidebar)
             .navigationSplitViewColumnWidth(min: 280, ideal: 320)
             .toolbar {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    // Standard macOS toolbar items
+                    Button {
+                        showAddSheet = true
+                    } label: {
+                        Label("Add Download", systemImage: "plus")
+                    }
+                    .keyboardShortcut("n", modifiers: .command)
+                    .help("Add New Download (⌘N)")
+                    
+                    Button {
+                        if let selectedID = selection,
+                           let task = filteredTasks.first(where: { $0.id == selectedID }) {
+                            Task {
+                                if task.status == .running {
+                                    await DownloadManager.shared.pauseDownload(taskID: task.id)
+                                } else if task.status == .paused || task.status == .pending {
+                                    await DownloadManager.shared.resumeDownload(taskID: task.id)
+                                }
+                            }
+                        }
+                    } label: {
+                        Label("Pause/Resume", systemImage: "pause.fill")
+                    }
+                    .keyboardShortcut("p", modifiers: .command)
+                    .help("Pause/Resume Download (⌘P)")
+                    
+                    Button {
+                        deleteTasks(completedOnly: true)
+                    } label: {
+                        Label("Clear Completed", systemImage: "trash")
+                    }
+                    .keyboardShortcut(.delete, modifiers: [.command, .shift])
+                    .help("Clear Completed Downloads (⌘⇧⌫)")
+                }
                 ToolbarItem(placement: .primaryAction) {
                     HStack {
                         // Speed Limit Control
@@ -175,9 +288,11 @@ struct ContentView: View {
                             Label("Manage List", systemImage: "ellipsis.circle")
                         }
 
+                        // Add Download button (also in toolbar)
                         Button(action: { showAddSheet = true }) {
                             Label("Add Download", systemImage: "plus")
                         }
+                        .keyboardShortcut("n", modifiers: .command)
                     }
                 }
             }
@@ -190,7 +305,40 @@ struct ContentView: View {
                 ContentUnavailableView(
                     "Select a Download", systemImage: "arrow.down.circle",
                     description: Text("Choose a download from the sidebar"))
+                    .dropDestination(for: String.self) { items, _ in
+                        // Handle dropped URLs
+                        for item in items {
+                            if let url = URL(string: item) {
+                                let downloadsPath = SecurityScopedBookmark.getDefaultDownloadDirectoryPath()
+                                addDownload(urlString: item, path: downloadsPath)
+                            }
+                        }
+                        return true
+                    }
             }
+        }
+        .dropDestination(for: URL.self) { urls, _ in
+            // Handle dropped file URLs or web URLs
+            let downloadsPath = SecurityScopedBookmark.getDefaultDownloadDirectoryPath()
+            for url in urls {
+                if url.isFileURL {
+                    // If it's a file, extract URLs from it (e.g., .txt file with URLs)
+                    if let content = try? String(contentsOf: url),
+                       !content.isEmpty {
+                        let lines = content.components(separatedBy: .newlines)
+                        for line in lines {
+                            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                            if !trimmed.isEmpty, URL(string: trimmed) != nil {
+                                addDownload(urlString: trimmed, path: downloadsPath)
+                            }
+                        }
+                    }
+                } else {
+                    // It's a web URL
+                    addDownload(urlString: url.absoluteString, path: downloadsPath)
+                }
+            }
+            return true
         }
         .alert("Download Error", isPresented: $showErrorAlert) {
             Button("OK", role: .cancel) {}
@@ -214,8 +362,18 @@ struct ContentView: View {
         } message: {
             Text("This will stop all running downloads and remove them from the list.")
         }
+        .sheet(isPresented: $showQueueManager) {
+            QueueManagerView()
+        }
         .onAppear {
             DownloadManager.shared.setModelContainer(modelContext.container)
+            MenuBarManager.shared.setModelContainer(modelContext.container)
+            DockManager.shared.setModelContainer(modelContext.container)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("SelectTask"))) { notification in
+            if let taskID = notification.object as? UUID {
+                selection = taskID
+            }
         }
     }
 
@@ -298,7 +456,8 @@ struct DownloadRowView: View {
     @State private var currentSpeed: Double = 0
     @State private var timeRemaining: TimeInterval? = nil
     
-    let timer = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
+    // Throttled UI updates: 0.5-1.0 second interval to reduce CPU usage
+    let timer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -459,6 +618,9 @@ struct DownloadRowView: View {
 struct TaskDetailView: View {
     @Bindable var task: DownloadTask
     @Environment(\.modelContext) var modelContext
+    @State private var isInspectorExpanded = false
+    @State private var serverHeaders: [String: String] = [:]
+    @State private var debugLog: [String] = []
 
     var body: some View {
         ScrollView {
@@ -471,6 +633,10 @@ struct TaskDetailView: View {
                     if let eTag = task.eTag {
                         LabeledContent("ETag", value: eTag)
                     }
+                    if let lastModified = task.lastModified {
+                        LabeledContent("Last Modified", value: lastModified.formatted())
+                    }
+                    LabeledContent("Resume Capable", value: task.supportsResume ? "Yes" : "No")
                 }
 
                 GroupBox("Segments (\(task.segments.count))") {
@@ -480,6 +646,74 @@ struct TaskDetailView: View {
                     ForEach(task.segments) { segment in
                         SegmentRowView(segment: segment, totalSize: task.totalSize)
                     }
+                }
+                
+                // Collapsible Inspector Panel
+                DisclosureGroup("Inspector", isExpanded: $isInspectorExpanded) {
+                    VStack(alignment: .leading, spacing: 16) {
+                        // Detailed Segmentation Map
+                        GroupBox("Segmentation Map") {
+                            DetailedSegmentationMapView(segments: task.segments, totalSize: task.totalSize)
+                                .frame(height: 60)
+                        }
+                        
+                        // Server Headers
+                        GroupBox("Server Headers") {
+                            if serverHeaders.isEmpty {
+                                Text("No headers available")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                ForEach(Array(serverHeaders.keys.sorted()), id: \.self) { key in
+                                    HStack {
+                                        Text(key)
+                                            .font(.caption.monospaced())
+                                            .foregroundStyle(.secondary)
+                                        Spacer()
+                                        Text(serverHeaders[key] ?? "")
+                                            .font(.caption)
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Connection Status per Segment
+                        GroupBox("Connection Status") {
+                            ForEach(task.segments) { segment in
+                                HStack {
+                                    Text("Segment \(segment.id.uuidString.prefix(8))")
+                                        .font(.caption.monospaced())
+                                    Spacer()
+                                    HStack(spacing: 4) {
+                                        Circle()
+                                            .fill(segment.isComplete ? .green : (task.status == .running ? .blue : .gray))
+                                            .frame(width: 8, height: 8)
+                                        Text(segment.isComplete ? "Complete" : (task.status == .running ? "Active" : "Pending"))
+                                            .font(.caption2)
+                                    }
+                                    Spacer()
+                                    Text("\(formatBytes(segment.currentOffset - segment.startOffset)) / \(formatBytes(segment.endOffset - segment.startOffset + 1))")
+                                        .font(.caption2.monospaced())
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        
+                        // Debug Log
+                        GroupBox("Debug Log") {
+                            ScrollView {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    ForEach(debugLog, id: \.self) { logEntry in
+                                        Text(logEntry)
+                                            .font(.system(.caption, design: .monospaced))
+                                            .textSelection(.enabled)
+                                    }
+                                }
+                            }
+                            .frame(height: 100)
+                        }
+                    }
+                    .padding(.vertical, 8)
                 }
 
                 HStack(spacing: 12) {
@@ -522,6 +756,43 @@ struct TaskDetailView: View {
             .padding()
         }
         .navigationTitle(task.sourceURL.lastPathComponent)
+        .onAppear {
+            loadServerHeaders()
+            loadDebugLog()
+        }
+        .onChange(of: task.status) { _, _ in
+            loadServerHeaders()
+        }
+    }
+    
+    private func loadServerHeaders() {
+        var headers: [String: String] = [:]
+        if let eTag = task.eTag {
+            headers["ETag"] = eTag
+        }
+        if let lastModified = task.lastModified {
+            headers["Last-Modified"] = lastModified.formatted()
+        }
+        if task.totalSize > 0 {
+            headers["Content-Length"] = "\(task.totalSize)"
+        }
+        headers["Resume Capable"] = task.supportsResume ? "Yes" : "No"
+        serverHeaders = headers
+    }
+    
+    private func loadDebugLog() {
+        var log: [String] = []
+        log.append("Task ID: \(task.id)")
+        log.append("Status: \(statusText)")
+        log.append("Segments: \(task.segments.count)")
+        log.append("Downloaded: \(formatBytes(task.downloadedBytes))")
+        if task.totalSize > 0 {
+            log.append("Progress: \(Int((Double(task.downloadedBytes) / Double(task.totalSize)) * 100))%")
+        }
+        if let error = task.errorMessage {
+            log.append("Error: \(error)")
+        }
+        debugLog = log
     }
 
     private var statusText: String {
@@ -634,6 +905,18 @@ struct AddDownloadSheet: View {
 
             TextField("URL", text: $urlString)
                 .textFieldStyle(.roundedBorder)
+                .dropDestination(for: String.self) { items, _ in
+                    if let firstItem = items.first {
+                        urlString = firstItem
+                    }
+                    return true
+                }
+                .dropDestination(for: URL.self) { urls, _ in
+                    if let firstURL = urls.first, !firstURL.isFileURL {
+                        urlString = firstURL.absoluteString
+                    }
+                    return true
+                }
 
             if isMediaURL {
                 Text("YouTube/Media URL detected - will extract video")
@@ -706,10 +989,8 @@ struct AddDownloadSheet: View {
         .padding()
         .frame(width: 400)
         .onAppear {
-            let downloadsPath =
-                FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first?.path
-                ?? "/tmp"
-            destinationPath = downloadsPath
+            // Use Security-Scoped Bookmark if available, otherwise use Downloads folder
+            destinationPath = SecurityScopedBookmark.getDefaultDownloadDirectoryPath()
         }
     }
 
@@ -721,6 +1002,9 @@ struct AddDownloadSheet: View {
         panel.allowsMultipleSelection = false
         if panel.runModal() == .OK, let url = panel.url {
             destinationPath = url.path
+            // Save Security-Scoped Bookmark for persistent access
+            _ = SecurityScopedBookmark.saveBookmark(for: url)
+            _ = url.startAccessingSecurityScopedResource()
         }
     }
 }

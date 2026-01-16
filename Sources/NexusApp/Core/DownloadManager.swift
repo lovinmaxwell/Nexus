@@ -8,7 +8,7 @@ class DownloadManager {
     static let shared = DownloadManager()
 
     private var coordinators: [UUID: TaskCoordinator] = [:]
-    private var modelContainer: ModelContainer?
+    private(set) var modelContainer: ModelContainer?
 
     var maxConnectionsPerDownload: Int = 8
     var maxConcurrentDownloads: Int = 3

@@ -24,11 +24,17 @@ struct NexusApp: App {
         DownloadManager.shared.setModelContainer(sharedModelContainer)
         // QueueManager context is set inside DownloadManager.setModelContainer
         SynchronizationQueueManager.shared.setModelContext(sharedModelContainer.mainContext)
+        BackgroundDownloadManager.shared.setModelContainer(sharedModelContainer)
+        MenuBarManager.shared.setModelContainer(sharedModelContainer)
+        DockManager.shared.setModelContainer(sharedModelContainer)
         QueueManager.shared.processAllQueues()
         BrowserExtensionListener.shared.startListening()
         
         // Start synchronization checks for active synchronization queues
         SynchronizationQueueManager.shared.startSynchronizationChecks()
+        
+        // Restore background downloads
+        BackgroundDownloadManager.shared.restoreBackgroundDownloads()
         
         Task {
             _ = await YtDlpUpdater.shared.performAutoCheckIfNeeded()

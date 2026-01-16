@@ -79,8 +79,8 @@ class BrowserExtensionListener: ObservableObject {
     }
     
     private func addDownloadFromBrowser(_ request: BrowserDownloadRequest) async {
-        let downloadsDir = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first!
-        let destinationFolder = downloadsDir.path
+        // Use Security-Scoped Bookmark if available
+        let destinationFolder = await SecurityScopedBookmark.getDefaultDownloadDirectoryPath()
         
         guard let url = URL(string: request.url) else {
             print("Browser extension: Invalid URL - \(request.url)")
