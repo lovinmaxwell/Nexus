@@ -72,6 +72,12 @@ actor TaskCoordinator {
             
             fileHandler = try SparseFileHandler(path: task.destinationPath)
 
+            // Load cookies from task if available
+            if let cookieData = task.httpCookies {
+                CookieStorage.storeCookies(cookieData, for: task.sourceURL)
+                print("TaskCoordinator: Loaded cookies from task")
+            }
+
             // Use NetworkHandlerFactory to get appropriate handler if not already injected
             if networkHandler == nil {
                 networkHandler = NetworkHandlerFactory.handler(for: task.sourceURL)
@@ -81,27 +87,45 @@ actor TaskCoordinator {
                 throw NetworkError.connectionFailed
             }
 
-            print("TaskCoordinator: Performing HEAD request...")
+            // Perform HEAD request validation before resume
+            print("TaskCoordinator: Performing HEAD request for validation...")
             let meta = try await handler.headRequest(url: task.sourceURL)
             print("TaskCoordinator: HEAD request successful - Size: \(meta.contentLength), Ranges: \(meta.acceptsRanges)")
 
-            // Validate resume integrity
-            if task.segments.count > 0 && task.totalSize > 0 {
-                // Check ETag
-                if let savedETag = task.eTag, let serverETag = meta.eTag, savedETag != serverETag {
-                    print("ETag mismatch: Saved \(savedETag), Server \(serverETag)")
-                    throw NetworkError.fileModified
+            // Validate resume capability
+            if task.segments.count > 0 {
+                // Check if server still supports range requests
+                if !meta.acceptsRanges {
+                    print("TaskCoordinator: Server no longer supports range requests. Restarting download.")
+                    // Clear segments to force full restart
+                    task.segments.removeAll()
+                    try context.save()
                 }
+                
+                // Validate resume integrity
+                if task.totalSize > 0 {
+                    // Check ETag
+                    if let savedETag = task.eTag, let serverETag = meta.eTag, savedETag != serverETag {
+                        print("ETag mismatch: Saved \(savedETag), Server \(serverETag)")
+                        throw NetworkError.fileModified
+                    }
 
-                // Check Last-Modified
-                if let savedLastModified = task.lastModified,
-                    let serverLastModified = meta.lastModified,
-                    savedLastModified != serverLastModified
-                {
-                    print(
-                        "Last-Modified mismatch: Saved \(savedLastModified), Server \(serverLastModified)"
-                    )
-                    throw NetworkError.fileModified
+                    // Check Last-Modified
+                    if let savedLastModified = task.lastModified,
+                        let serverLastModified = meta.lastModified,
+                        savedLastModified != serverLastModified
+                    {
+                        print(
+                            "Last-Modified mismatch: Saved \(savedLastModified), Server \(serverLastModified)"
+                        )
+                        throw NetworkError.fileModified
+                    }
+                    
+                    // Check Content-Length hasn't changed
+                    if meta.contentLength > 0 && task.totalSize != meta.contentLength {
+                        print("Content-Length changed: Saved \(task.totalSize), Server \(meta.contentLength)")
+                        throw NetworkError.fileModified
+                    }
                 }
             }
 
@@ -450,6 +474,15 @@ actor TaskCoordinator {
     func getProgress() -> (totalBytes: Int64, downloadedBytes: Int64, speed: Double) {
         let downloaded = segmentProgress.values.reduce(0) { $0 + $1.bytesDownloaded }
         let speed = segmentProgress.values.reduce(0.0) { $0 + $1.currentSpeed }
+        
+        // Get total size from task
+        let context = ModelContext(modelContainer)
+        let id = taskID
+        let descriptor = FetchDescriptor<DownloadTask>(predicate: #Predicate { $0.id == id })
+        if let task = try? context.fetch(descriptor).first, task.totalSize > 0 {
+            return (task.totalSize, downloaded, speed)
+        }
+        
         return (0, downloaded, speed)
     }
     

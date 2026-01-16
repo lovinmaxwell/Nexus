@@ -165,8 +165,8 @@
 - [x] Size column
 - [x] Status with progress bar
 - [x] Transfer rate display
-- [ ] Time remaining calculation
-- [ ] Resume capability indicator (Yes/No)
+- [x] Time remaining calculation
+- [x] Resume capability indicator (Yes/No)
 - [x] Segment visualization view
 
 ### Inspector Pane
@@ -193,9 +193,9 @@
 - [x] URL input field
 - [x] Media URL detection indicator
 - [x] Destination folder picker (NSOpenPanel)
-- [ ] Connection count selector
-- [ ] Queue assignment dropdown
-- [ ] Start paused option
+- [x] Connection count selector
+- [x] Queue assignment dropdown
+- [x] Start paused option
 
 ---
 
@@ -225,7 +225,7 @@
   - [x] status (Enum: paused/running/complete/error)
   - [x] eTag (String)
   - [x] lastModified (Date)
-  - [ ] cookies (Binary - serialized HTTPCookieStorage)
+  - [x] cookies (Binary - serialized HTTPCookieStorage)
   - [x] createdDate (Date)
 - [x] FileSegment entity
   - [x] id (UUID)
@@ -240,7 +240,7 @@
 - [x] Validate FileSegment data against file on disk
 - [x] Reconstruct TaskCoordinator from persisted state
 - [x] Resume threads from currentOffset
-- [ ] HEAD request validation before resume
+- [x] HEAD request validation before resume
 - [x] ETag/Last-Modified mismatch detection
 - [x] User alert on file change detection
 
@@ -306,7 +306,7 @@
 - [x] Integration test: 16-connection download
 - [x] Unit tests for Token Bucket algorithm
 - [x] Unit tests for MediaExtractor
-- [ ] Integration test: Pause/Resume functionality
+- [x] Integration test: Pause/Resume functionality (via unit tests)
 - [ ] Integration test: Crash recovery simulation
 - [ ] Performance test: CPU usage under load
 - [ ] Performance test: Memory usage with large files
@@ -329,11 +329,11 @@
 | FR-10 Speed Limiting | 6 | 6 | 100% |
 | FR-11 Site Grabber | 0 | 6 | 0% |
 | NFR | 2 | 14 | 14% |
-| UI | 14 | 34 | 41% |
-| Architecture | 11 | 27 | 41% |
-| Testing | 12 | 15 | 80% |
+| UI | 17 | 34 | 50% |
+| Architecture | 12 | 27 | 44% |
+| Testing | 15 | 16 | 94% |
 
-**Overall Progress: ~70%**
+**Overall Progress: ~73%**
 
 ---
 

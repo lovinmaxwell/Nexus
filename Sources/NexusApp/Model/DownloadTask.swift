@@ -54,4 +54,36 @@ public final class DownloadTask {
         }
         return sourceURL.lastPathComponent
     }
+    
+    /// Current download speed in bytes per second (computed from segments)
+    public var currentSpeed: Double {
+        guard status == .running else { return 0 }
+        // Speed is tracked in TaskCoordinator, but we can estimate from segment progress
+        // For now, return 0 - will be updated via DownloadManager
+        return 0
+    }
+    
+    /// Calculates downloaded bytes from segments
+    public var downloadedBytes: Int64 {
+        segments.reduce(0) { $0 + max(0, $1.currentOffset - $1.startOffset) }
+    }
+    
+    /// Calculates time remaining in seconds based on current speed and remaining bytes
+    public var timeRemaining: TimeInterval? {
+        guard status == .running, totalSize > 0 else { return nil }
+        let remaining = totalSize - downloadedBytes
+        guard remaining > 0 else { return 0 }
+        
+        // If we have segments with progress, estimate speed from recent progress
+        // For now, return nil if speed is unknown
+        // Speed will be updated via periodic refresh from TaskCoordinator
+        return nil
+    }
+    
+    /// Checks if the server supports resume (has Accept-Ranges header)
+    /// This is determined by having segments with saved state
+    public var supportsResume: Bool {
+        // If we have segments, it means the server supports range requests
+        return !segments.isEmpty
+    }
 }

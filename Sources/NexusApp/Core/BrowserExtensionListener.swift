@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 
 struct BrowserDownloadRequest: Codable {
     let url: String
@@ -81,11 +82,31 @@ class BrowserExtensionListener: ObservableObject {
         let downloadsDir = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first!
         let destinationFolder = downloadsDir.path
         
+        guard let url = URL(string: request.url) else {
+            print("Browser extension: Invalid URL - \(request.url)")
+            return
+        }
+        
         do {
+            // Store cookies if provided
+            if let cookieString = request.cookies, !cookieString.isEmpty {
+                if let cookieData = cookieString.data(using: .utf8) {
+                    CookieStorage.storeCookies(cookieData, for: url)
+                    print("Browser extension: Stored cookies for \(request.url)")
+                }
+            }
+            
             if let taskID = try await DownloadManager.shared.addMediaDownload(
                 urlString: request.url,
                 destinationFolder: destinationFolder
             ) {
+                // Store cookies in task for later use
+                if let cookieString = request.cookies, let cookieData = cookieString.data(using: .utf8) {
+                    // Cookies are already stored in HTTPCookieStorage, and will be used automatically
+                    // We also store the raw cookie string in the task for persistence
+                    // This is handled in DownloadManager.addDownload/addMediaDownload
+                }
+                
                 await DownloadManager.shared.startDownload(taskID: taskID)
                 print("Browser extension: Started download for \(request.url)")
             }

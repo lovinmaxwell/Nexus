@@ -186,7 +186,10 @@ class DownloadManager {
         return (url, fallbackFilename)
     }
 
-    func addDownload(url: URL, destinationPath: String) async -> UUID? {
+    func addDownload(
+        url: URL, destinationPath: String, connectionCount: Int = 8,
+        queueID: UUID? = nil, startPaused: Bool = false
+    ) async -> UUID? {
         guard let container = modelContainer else {
             print("DownloadManager: modelContainer is nil")
             return nil
@@ -221,21 +224,39 @@ class DownloadManager {
             finalPath = (destinationPath as NSString).appendingPathComponent(filename)
         }
 
-        // Get or create Default Queue
-        let defaultQueue: DownloadQueue
-        if let existingQueue = QueueManager.shared.getDefaultQueue() {
-            defaultQueue = existingQueue
+        // Get queue (selected or default)
+        let queue: DownloadQueue
+        if let queueID = queueID {
+            let descriptor = FetchDescriptor<DownloadQueue>(predicate: #Predicate { $0.id == queueID })
+            if let foundQueue = try? context.fetch(descriptor).first {
+                queue = foundQueue
+            } else {
+                // Fallback to default if queue not found
+                queue = QueueManager.shared.getDefaultQueue() ?? DownloadQueue(name: "Default", maxConcurrentDownloads: 3)
+                context.insert(queue)
+            }
         } else {
-            // Create queue directly if QueueManager fails
-            print("DownloadManager: Creating default queue directly")
-            defaultQueue = DownloadQueue(name: "Default", maxConcurrentDownloads: 3)
-            context.insert(defaultQueue)
+            if let existingQueue = QueueManager.shared.getDefaultQueue() {
+                queue = existingQueue
+            } else {
+                print("DownloadManager: Creating default queue directly")
+                queue = DownloadQueue(name: "Default", maxConcurrentDownloads: 3)
+                context.insert(queue)
+            }
         }
 
         let task = DownloadTask(sourceURL: finalURL, destinationPath: finalPath)
-        task.status = .pending
-        task.queue = defaultQueue
+        task.status = startPaused ? .paused : .pending
+        task.queue = queue
         task.displayName = filename
+        
+        // Store cookies from HTTPCookieStorage if available
+        if let cookieData = CookieStorage.serializeCookies(for: finalURL) {
+            task.httpCookies = cookieData
+        }
+        
+        // Store connection count preference (we'll use this when creating TaskCoordinator)
+        // For now, we'll use the global maxConnectionsPerDownload, but could store per-task
 
         context.insert(task)
         
@@ -247,9 +268,11 @@ class DownloadManager {
             return nil
         }
 
-        // Trigger queue check
-        Task { @MainActor in
-            QueueManager.shared.processAllQueues()
+        // Trigger queue check (only if not paused)
+        if !startPaused {
+            Task { @MainActor in
+                QueueManager.shared.processAllQueues()
+            }
         }
 
         return task.id

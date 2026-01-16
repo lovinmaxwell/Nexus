@@ -198,8 +198,8 @@ struct ContentView: View {
             Text(lastErrorMessage)
         }
         .sheet(isPresented: $showAddSheet) {
-            AddDownloadSheet(urlString: $newURLString) { urlString, path in
-                addDownload(urlString: urlString, path: path)
+            AddDownloadSheet(urlString: $newURLString, modelContext: modelContext) { urlString, path, connectionCount, queueID, startPaused in
+                addDownload(urlString: urlString, path: path, connectionCount: connectionCount, queueID: queueID, startPaused: startPaused)
             }
         }
         .confirmationDialog(
@@ -222,19 +222,36 @@ struct ContentView: View {
     @State private var showErrorAlert = false
     @State private var lastErrorMessage = ""
 
-    private func addDownload(urlString: String, path: String) {
+    private func addDownload(urlString: String, path: String, connectionCount: Int = 8, queueID: UUID? = nil, startPaused: Bool = false) {
         Task {
             do {
-                // For media URLs, the task is added immediately and extraction happens in background
-                // For regular URLs, we start download right away
-                if let taskID = try await DownloadManager.shared.addMediaDownload(
-                    urlString: urlString, destinationFolder: path)
-                {
-                    // Only start immediately for non-media URLs
-                    // Media URLs auto-start after extraction completes
-                    let extractor = MediaExtractor.shared
-                    if !extractor.isMediaURL(urlString) {
-                        await DownloadManager.shared.startDownload(taskID: taskID)
+                let extractor = MediaExtractor.shared
+                let trimmedURL = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+                
+                // For media URLs, use addMediaDownload
+                if extractor.isMediaURL(trimmedURL) {
+                    if let taskID = try await DownloadManager.shared.addMediaDownload(
+                        urlString: trimmedURL, destinationFolder: path)
+                    {
+                        // Media URLs auto-start after extraction completes
+                        // Update connection count if needed (stored in task metadata)
+                    }
+                } else {
+                    // For regular URLs, use addDownload
+                    guard let url = URL(string: trimmedURL) else {
+                        lastErrorMessage = "Invalid URL"
+                        showErrorAlert = true
+                        return
+                    }
+                    
+                    // Temporarily set connection count (will be used when creating TaskCoordinator)
+                    DownloadManager.shared.maxConnectionsPerDownload = connectionCount
+                    
+                    if let taskID = await DownloadManager.shared.addDownload(
+                        url: url, destinationPath: path, connectionCount: connectionCount,
+                        queueID: queueID, startPaused: startPaused)
+                    {
+                        // Task will auto-start unless startPaused is true
                     }
                 }
             } catch {
@@ -278,6 +295,10 @@ struct ContentView: View {
 
 struct DownloadRowView: View {
     @Bindable var task: DownloadTask
+    @State private var currentSpeed: Double = 0
+    @State private var timeRemaining: TimeInterval? = nil
+    
+    let timer = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -290,8 +311,31 @@ struct DownloadRowView: View {
                 Text(statusText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                
+                if task.status == .running && currentSpeed > 0 {
+                    Text(formatSpeed(currentSpeed))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
 
                 Spacer()
+                
+                if task.status == .running, let remaining = timeRemaining {
+                    Text(formatTimeRemaining(remaining))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                
+                // Resume capability indicator
+                if task.status == .paused || task.status == .pending {
+                    HStack(spacing: 2) {
+                        Image(systemName: task.supportsResume ? "arrow.clockwise.circle.fill" : "xmark.circle.fill")
+                            .font(.caption2)
+                        Text(task.supportsResume ? "Yes" : "No")
+                            .font(.caption2)
+                    }
+                    .foregroundStyle(task.supportsResume ? .green : .orange)
+                }
 
                 if task.totalSize > 0 {
                     Text(formatBytes(task.totalSize))
@@ -311,6 +355,34 @@ struct DownloadRowView: View {
             }
         }
         .padding(.vertical, 4)
+        .onReceive(timer) { _ in
+            updateProgress()
+        }
+        .onAppear {
+            updateProgress()
+        }
+    }
+    
+    private func updateProgress() {
+        guard task.status == .running else {
+            currentSpeed = 0
+            timeRemaining = nil
+            return
+        }
+        
+        Task {
+            if let progress = await DownloadManager.shared.getProgress(taskID: task.id) {
+                await MainActor.run {
+                    currentSpeed = progress.speed
+                    if progress.speed > 0 && progress.totalBytes > 0 {
+                        let remaining = Double(progress.totalBytes - progress.downloadedBytes) / progress.speed
+                        timeRemaining = remaining > 0 ? remaining : 0
+                    } else {
+                        timeRemaining = nil
+                    }
+                }
+            }
+        }
     }
 
     private var statusIcon: some View {
@@ -360,6 +432,27 @@ struct DownloadRowView: View {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
         return formatter.string(fromByteCount: bytes)
+    }
+    
+    private func formatSpeed(_ bytesPerSecond: Double) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        formatter.includesUnit = true
+        return formatter.string(fromByteCount: Int64(bytesPerSecond)) + "/s"
+    }
+    
+    private func formatTimeRemaining(_ seconds: TimeInterval) -> String {
+        if seconds < 60 {
+            return String(format: "%.0fs", seconds)
+        } else if seconds < 3600 {
+            let minutes = Int(seconds / 60)
+            let secs = Int(seconds.truncatingRemainder(dividingBy: 60))
+            return String(format: "%dm %ds", minutes, secs)
+        } else {
+            let hours = Int(seconds / 3600)
+            let minutes = Int((seconds.truncatingRemainder(dividingBy: 3600)) / 60)
+            return String(format: "%dh %dm", hours, minutes)
+        }
     }
 }
 
@@ -518,7 +611,12 @@ struct AddDownloadSheet: View {
     @State private var destinationPath: String = ""
     @State private var isExtracting = false
     @State private var errorMessage: String?
-    let onAdd: (String, String) -> Void
+    @State private var connectionCount: Int = 8
+    @State private var selectedQueueID: UUID?
+    @State private var startPaused: Bool = false
+    @Query(sort: \DownloadQueue.name) private var queues: [DownloadQueue]
+    let modelContext: ModelContext
+    let onAdd: (String, String, Int, UUID?, Bool) -> Void
 
     private var isMediaURL: Bool {
         let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -551,6 +649,34 @@ struct AddDownloadSheet: View {
                     chooseDestination()
                 }
             }
+            
+            // Connection count selector
+            HStack {
+                Text("Connections:")
+                    .frame(width: 120, alignment: .trailing)
+                Stepper(value: $connectionCount, in: 1...32) {
+                    Text("\(connectionCount)")
+                        .frame(width: 40)
+                }
+                Spacer()
+            }
+            
+            // Queue assignment dropdown
+            HStack {
+                Text("Queue:")
+                    .frame(width: 120, alignment: .trailing)
+                Picker("Queue", selection: $selectedQueueID) {
+                    Text("Default").tag(nil as UUID?)
+                    ForEach(queues) { queue in
+                        Text(queue.name).tag(queue.id as UUID?)
+                    }
+                }
+                .pickerStyle(.menu)
+                Spacer()
+            }
+            
+            // Start paused option
+            Toggle("Start paused", isOn: $startPaused)
 
             if let error = errorMessage {
                 Text(error)
@@ -567,7 +693,7 @@ struct AddDownloadSheet: View {
                 Spacer()
 
                 Button("Add") {
-                    onAdd(urlString, destinationPath)
+                    onAdd(urlString, destinationPath, connectionCount, selectedQueueID, startPaused)
                     urlString = ""
                     destinationPath = ""
                     dismiss()
