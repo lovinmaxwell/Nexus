@@ -498,7 +498,11 @@ class DownloadManager {
         return task.id
     }
 
-    func addMediaDownload(urlString: String, destinationFolder: String) async throws -> UUID? {
+    func addMediaDownload(
+        urlString: String,
+        destinationFolder: String,
+        preferredFormatID: String? = nil
+    ) async throws -> UUID? {
         guard let container = modelContainer else {
             print("DownloadManager: modelContainer is nil in addMediaDownload")
             return nil
@@ -545,6 +549,9 @@ class DownloadManager {
             // Extract media info in background, then update the task
             Task { @MainActor in
                 do {
+                    let normalizedFormatID = preferredFormatID?
+                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? "best"
+
                     // Check if yt-dlp is available
                     let isAvailable = await extractor.isYtDlpAvailable
                     if !isAvailable {
@@ -564,18 +571,47 @@ class DownloadManager {
                         .replacingOccurrences(of: ":", with: "-")
                         .replacingOccurrences(of: "\"", with: "'")
                         .replacingOccurrences(of: "\n", with: " ")
-                    let filename = "\(sanitizedTitle).\(info.fileExtension)"
+                    let trimmedFormatID = normalizedFormatID.isEmpty ? "best" : normalizedFormatID
+                    let selectedFormat = info.availableFormats.first { $0.id == trimmedFormatID }
+                    let filenameSuffix = selectedFormat?.resolution.flatMap { $0.isEmpty ? nil : $0 }
+                    let baseFilename = filenameSuffix == nil ? sanitizedTitle : "\(sanitizedTitle) - \(filenameSuffix!)"
+                    let fileExtension = selectedFormat?.fileExtension.isEmpty == false
+                        ? selectedFormat!.fileExtension
+                        : info.fileExtension
+                    let filename = "\(baseFilename).\(fileExtension)"
                     let destinationPath = (destinationFolder as NSString).appendingPathComponent(filename)
                     
                     // For YouTube videos, the directURL might be the original URL
                     // We'll use yt-dlp to download it directly
                     let downloadURL: URL
-                    if info.directURL == trimmedURLString || info.directURL.isEmpty {
-                        // No direct URL available - use original URL
-                        downloadURL = placeholderURL
-                        print("DownloadManager: No direct URL, will use yt-dlp for download")
+                    if trimmedFormatID == "best" {
+                        if info.directURL == trimmedURLString || info.directURL.isEmpty {
+                            let directURLString = try await extractor.getDirectURL(
+                                from: trimmedURLString,
+                                format: "best"
+                            )
+                            guard let url = URL(string: directURLString) else {
+                                task.status = .error
+                                task.errorMessage = "Could not parse download URL"
+                                try? context.save()
+                                return
+                            }
+                            downloadURL = url
+                        } else {
+                            guard let url = URL(string: info.directURL) else {
+                                task.status = .error
+                                task.errorMessage = "Could not parse download URL"
+                                try? context.save()
+                                return
+                            }
+                            downloadURL = url
+                        }
                     } else {
-                        guard let url = URL(string: info.directURL) else {
+                        let directURLString = try await extractor.getDirectURL(
+                            from: trimmedURLString,
+                            format: trimmedFormatID
+                        )
+                        guard let url = URL(string: directURLString) else {
                             task.status = .error
                             task.errorMessage = "Could not parse download URL"
                             try? context.save()
@@ -587,7 +623,7 @@ class DownloadManager {
                     // Update task properties
                     task.sourceURL = downloadURL
                     task.destinationPath = destinationPath
-                    task.totalSize = info.fileSize ?? 0
+                    task.totalSize = selectedFormat?.fileSize ?? info.fileSize ?? 0
                     task.displayName = sanitizedTitle
                     task.status = .pending
                     

@@ -1,11 +1,38 @@
 import Foundation
 
+/// Comprehensive download request from browser extension
+/// Supports both basic capture and IDM-style webRequest capture
 struct DownloadRequest: Codable {
+    // Core URL information
     let url: String?
+    let originalUrl: String?
+    let filename: String?
+    
+    // Full redirect chain (IDM-style capture)
+    let redirectChain: [String]?
+    
+    // Request headers captured from browser
+    let requestHeaders: [String: String]?
+    
+    // Response headers from server
+    let responseHeaders: [String: String]?
+    
+    // Authentication & session
     let cookies: String?
     let referrer: String?
     let userAgent: String?
-    let filename: String?
+    let authorization: String?
+    
+    // Content information
+    let contentType: String?
+    let contentLength: Int64?
+    let contentDisposition: String?
+    
+    // Metadata
+    let captureMethod: String?  // "webRequest" or "basic"
+    let timestamp: Int64?
+    
+    // System
     let ping: Bool?
 }
 
@@ -106,21 +133,57 @@ class NativeMessagingHost {
         do {
             try fileManager.createDirectory(at: pendingDir, withIntermediateDirectories: true)
             
-            // Create a simple request structure for the main app
+            // Comprehensive request structure matching BrowserDownloadRequest in main app
             struct BrowserRequest: Codable {
+                // Core URL information
                 let url: String
+                let originalUrl: String?
+                let filename: String?
+                
+                // Full redirect chain (IDM-style capture)
+                let redirectChain: [String]?
+                
+                // Request headers captured from browser
+                let requestHeaders: [String: String]?
+                
+                // Response headers from server
+                let responseHeaders: [String: String]?
+                
+                // Authentication & session
                 let cookies: String?
                 let referrer: String?
                 let userAgent: String?
-                let filename: String?
+                let authorization: String?
+                
+                // Content information
+                let contentType: String?
+                let contentLength: Int64?
+                let contentDisposition: String?
+                
+                // Metadata
+                let captureMethod: String?
+                let timestamp: Int64?
             }
+            
+            // Use originalUrl as referrer if no referrer provided (important for redirect chains)
+            let effectiveReferrer = request.referrer ?? request.originalUrl
             
             let browserRequest = BrowserRequest(
                 url: url,
+                originalUrl: request.originalUrl,
+                filename: request.filename,
+                redirectChain: request.redirectChain,
+                requestHeaders: request.requestHeaders,
+                responseHeaders: request.responseHeaders,
                 cookies: request.cookies,
-                referrer: request.referrer,
+                referrer: effectiveReferrer,
                 userAgent: request.userAgent,
-                filename: request.filename
+                authorization: request.authorization,
+                contentType: request.contentType,
+                contentLength: request.contentLength,
+                contentDisposition: request.contentDisposition,
+                captureMethod: request.captureMethod,
+                timestamp: request.timestamp
             )
             
             let requestFile = pendingDir.appendingPathComponent("\(UUID().uuidString).json")

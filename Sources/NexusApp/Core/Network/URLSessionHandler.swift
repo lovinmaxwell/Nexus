@@ -1,18 +1,84 @@
 import Foundation
 
+/// Delegate to capture redirect chains and extract final URLs
+class RedirectCapturingDelegate: NSObject, URLSessionTaskDelegate {
+    var redirectChain: [URL] = []
+    var finalURL: URL?
+    private let followRedirects: Bool
+    
+    init(followRedirects: Bool = false) {
+        self.followRedirects = followRedirects
+        super.init()
+    }
+    
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        // Capture the redirect URL from the Location header
+        if let locationHeader = response.value(forHTTPHeaderField: "Location"),
+           let originalURL = task.originalRequest?.url,
+           let redirectURL = URL(string: locationHeader, relativeTo: originalURL)?.absoluteURL {
+            redirectChain.append(redirectURL)
+            finalURL = redirectURL
+            print("URLSessionHandler: Redirect detected -> \(redirectURL)")
+        }
+        
+        if followRedirects {
+            // Follow the redirect with the new request
+            completionHandler(request)
+        } else {
+            // Stop the redirect chain - return nil to prevent automatic following
+            completionHandler(nil)
+        }
+    }
+}
+
 class URLSessionHandler: NetworkHandler {
     private let session: URLSession
+    private let noRedirectSession: URLSession
+    private let redirectDelegate: RedirectCapturingDelegate
+    
+    /// Stores the resolved final URL after redirect resolution
+    private var resolvedURL: URL?
+    /// Stores the original URL for Referer header
+    private var originalURL: URL?
 
     init(configuration: URLSessionConfiguration = .default) {
         self.session = URLSession(configuration: configuration)
+        
+        // Create a session that captures but doesn't automatically follow redirects
+        self.redirectDelegate = RedirectCapturingDelegate(followRedirects: false)
+        self.noRedirectSession = URLSession(
+            configuration: configuration,
+            delegate: redirectDelegate,
+            delegateQueue: nil
+        )
     }
 
     func headRequest(url: URL) async throws -> (
         contentLength: Int64, acceptsRanges: Bool, lastModified: Date?, eTag: String?
     ) {
-        var request = URLRequest(url: url)
+        // Store original URL for Referer header
+        self.originalURL = url
+        
+        // STEP 1: Resolve redirects first to get the actual download URL
+        // This is critical for sites like testfile.org that return 302 redirects
+        let resolvedResult = try await resolveRedirects(for: url)
+        let targetURL = resolvedResult.finalURL
+        self.resolvedURL = targetURL
+        
+        if targetURL != url {
+            print("URLSessionHandler: Using resolved URL for download: \(targetURL)")
+        }
+        
+        // STEP 2: Try HEAD request on the resolved URL
+        var request = URLRequest(url: targetURL)
         request.httpMethod = "HEAD"
-        addBrowserHeaders(to: &request)
+        addBrowserHeaders(to: &request, referer: url)
 
         let (_, response) = try await session.data(for: request)
 
@@ -20,12 +86,12 @@ class URLSessionHandler: NetworkHandler {
             throw NetworkError.connectionFailed
         }
 
-        // Handle redirects (3xx status codes)
+        // Handle additional redirects (3xx status codes) - shouldn't happen after resolveRedirects
         if (300...399).contains(httpResponse.statusCode) {
             if let location = httpResponse.value(forHTTPHeaderField: "Location"),
-               let redirectURL = URL(string: location, relativeTo: url) {
-                print("URLSessionHandler: Following redirect to \(redirectURL)")
-                // Recursively follow redirect (with limit to prevent infinite loops)
+               let redirectURL = URL(string: location, relativeTo: targetURL) {
+                print("URLSessionHandler: Additional redirect detected to \(redirectURL)")
+                self.resolvedURL = redirectURL.absoluteURL
                 return try await headRequest(url: redirectURL)
             } else {
                 throw NetworkError.serverError(httpResponse.statusCode)
@@ -36,7 +102,7 @@ class URLSessionHandler: NetworkHandler {
         if httpResponse.statusCode == 403 || httpResponse.statusCode == 405 {
             print("URLSessionHandler: HEAD request not allowed (status \(httpResponse.statusCode)), using GET fallback")
             do {
-                return try await getMetadataViaGET(url: url)
+                return try await getMetadataViaGET(url: targetURL)
             } catch {
                 // If GET fallback also fails, return unknown size but allow download to proceed
                 print("URLSessionHandler: GET fallback also failed, proceeding with unknown size")
@@ -59,7 +125,7 @@ class URLSessionHandler: NetworkHandler {
         // If still -1, try a GET request to get the actual size
         if contentLength < 0 {
             print("URLSessionHandler: Content-Length not in HEAD, trying GET request...")
-            contentLength = try await getContentLengthViaGET(url: url)
+            contentLength = try await getContentLengthViaGET(url: targetURL)
         }
 
         let acceptsRanges = (httpResponse.value(forHTTPHeaderField: "Accept-Ranges") == "bytes")
@@ -82,9 +148,13 @@ class URLSessionHandler: NetworkHandler {
     private func getMetadataViaGET(url: URL) async throws -> (
         contentLength: Int64, acceptsRanges: Bool, lastModified: Date?, eTag: String?
     ) {
+        // Use resolved URL if available, otherwise use the provided URL
+        let targetURL = resolvedURL ?? url
+        let refererURL = originalURL ?? url
+        
         // First try without Range header - some servers block Range requests
-        var request = URLRequest(url: url)
-        addBrowserHeaders(to: &request)
+        var request = URLRequest(url: targetURL)
+        addBrowserHeaders(to: &request, referer: refererURL)
         
         let (_, response) = try await session.data(for: request)
         
@@ -95,8 +165,9 @@ class URLSessionHandler: NetworkHandler {
         // Handle redirects
         if (300...399).contains(httpResponse.statusCode) {
             if let location = httpResponse.value(forHTTPHeaderField: "Location"),
-               let redirectURL = URL(string: location, relativeTo: url) {
+               let redirectURL = URL(string: location, relativeTo: targetURL)?.absoluteURL {
                 print("URLSessionHandler: Following redirect in GET fallback to \(redirectURL)")
+                self.resolvedURL = redirectURL
                 return try await getMetadataViaGET(url: redirectURL)
             } else {
                 throw NetworkError.serverError(httpResponse.statusCode)
@@ -106,9 +177,9 @@ class URLSessionHandler: NetworkHandler {
         // If still 403, try with Range header
         if httpResponse.statusCode == 403 {
             print("URLSessionHandler: GET without Range also 403, trying with Range header...")
-            var rangeRequest = URLRequest(url: url)
+            var rangeRequest = URLRequest(url: targetURL)
             rangeRequest.setValue("bytes=0-0", forHTTPHeaderField: "Range")
-            addBrowserHeaders(to: &rangeRequest)
+            addBrowserHeaders(to: &rangeRequest, referer: refererURL)
             
             let (_, rangeResponse) = try await session.data(for: rangeRequest)
             guard let rangeHttpResponse = rangeResponse as? HTTPURLResponse else {
@@ -117,7 +188,7 @@ class URLSessionHandler: NetworkHandler {
             
             if (200...299).contains(rangeHttpResponse.statusCode) || rangeHttpResponse.statusCode == 206 {
                 // Use the range response
-                return try parseMetadataFromResponse(rangeHttpResponse, url: url)
+                return try parseMetadataFromResponse(rangeHttpResponse, url: targetURL)
             }
         }
         
@@ -128,15 +199,92 @@ class URLSessionHandler: NetworkHandler {
             return (0, false, nil, nil)  // Unknown size, no range support detected
         }
         
-        return try parseMetadataFromResponse(httpResponse, url: url)
+        return try parseMetadataFromResponse(httpResponse, url: targetURL)
     }
     
-    private func addBrowserHeaders(to request: inout URLRequest) {
+    private func addBrowserHeaders(to request: inout URLRequest, referer: URL? = nil) {
         request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
         request.setValue("*/*", forHTTPHeaderField: "Accept")
         request.setValue("en-US,en;q=0.9", forHTTPHeaderField: "Accept-Language")
         request.setValue("identity", forHTTPHeaderField: "Accept-Encoding") // Avoid compressed response if possible, though URLSession handles gzip automatically
         request.setValue("1", forHTTPHeaderField: "Upgrade-Insecure-Requests")
+        
+        // Add Referer header if provided - critical for sites that check origin
+        if let referer = referer {
+            request.setValue(referer.absoluteString, forHTTPHeaderField: "Referer")
+        }
+    }
+    
+    /// Resolves all redirects and returns the final URL along with metadata
+    /// This is critical for sites like testfile.org that use 302 redirects to CDN URLs
+    func resolveRedirects(for url: URL, maxRedirects: Int = 10) async throws -> (
+        finalURL: URL, 
+        response: HTTPURLResponse?
+    ) {
+        var currentURL = url
+        var redirectCount = 0
+        var lastResponse: HTTPURLResponse?
+        
+        print("URLSessionHandler: Resolving redirects for \(url)")
+        
+        while redirectCount < maxRedirects {
+            // Create a new delegate for each request to capture the redirect
+            let delegate = RedirectCapturingDelegate(followRedirects: false)
+            let tempSession = URLSession(
+                configuration: .default,
+                delegate: delegate,
+                delegateQueue: nil
+            )
+            
+            defer { tempSession.finishTasksAndInvalidate() }
+            
+            var request = URLRequest(url: currentURL)
+            request.httpMethod = "GET"
+            addBrowserHeaders(to: &request, referer: originalURL ?? url)
+            // Only request first byte to avoid downloading entire file
+            request.setValue("bytes=0-0", forHTTPHeaderField: "Range")
+            
+            let (_, response) = try await tempSession.data(for: request)
+            
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw NetworkError.connectionFailed
+            }
+            
+            lastResponse = httpResponse
+            
+            // Check if this is a redirect response
+            if (300...399).contains(httpResponse.statusCode) {
+                // Get the redirect URL from the delegate or from Location header
+                if let redirectURL = delegate.finalURL {
+                    print("URLSessionHandler: Following redirect #\(redirectCount + 1) to \(redirectURL)")
+                    currentURL = redirectURL
+                    redirectCount += 1
+                    continue
+                } else if let location = httpResponse.value(forHTTPHeaderField: "Location"),
+                          let redirectURL = URL(string: location, relativeTo: currentURL)?.absoluteURL {
+                    print("URLSessionHandler: Following redirect #\(redirectCount + 1) to \(redirectURL) (from header)")
+                    currentURL = redirectURL
+                    redirectCount += 1
+                    continue
+                } else {
+                    // Redirect without location - treat as final
+                    break
+                }
+            }
+            
+            // Not a redirect - this is the final URL
+            break
+        }
+        
+        if redirectCount >= maxRedirects {
+            print("URLSessionHandler: Warning - max redirects reached")
+        }
+        
+        if currentURL != url {
+            print("URLSessionHandler: Resolved final URL: \(currentURL)")
+        }
+        
+        return (currentURL, lastResponse)
     }
     
     /// Helper to parse metadata from HTTP response
@@ -185,9 +333,12 @@ class URLSessionHandler: NetworkHandler {
     
     /// Fallback: Get content length via GET request with Range header
     private func getContentLengthViaGET(url: URL) async throws -> Int64 {
-        var request = URLRequest(url: url)
+        let targetURL = resolvedURL ?? url
+        let refererURL = originalURL ?? url
+        
+        var request = URLRequest(url: targetURL)
         request.setValue("bytes=0-0", forHTTPHeaderField: "Range")
-        addBrowserHeaders(to: &request)
+        addBrowserHeaders(to: &request, referer: refererURL)
         
         let (_, response) = try await session.data(for: request)
         
@@ -218,7 +369,23 @@ class URLSessionHandler: NetworkHandler {
     func downloadRange(url: URL, start: Int64, end: Int64) async throws -> AsyncThrowingStream<
         Data, Error
     > {
-        var request = URLRequest(url: url)
+        // If we don't have a resolved URL yet, resolve redirects now
+        if resolvedURL == nil {
+            print("URLSessionHandler: No resolved URL cached, resolving redirects for download...")
+            self.originalURL = url
+            let resolved = try await resolveRedirects(for: url)
+            self.resolvedURL = resolved.finalURL
+        }
+        
+        // Use resolved URL if available (from previous headRequest), otherwise use provided URL
+        let downloadURL = resolvedURL ?? url
+        let refererURL = originalURL ?? url
+        
+        if downloadURL != url {
+            print("URLSessionHandler: Downloading from resolved URL: \(downloadURL)")
+        }
+        
+        var request = URLRequest(url: downloadURL)
         request.httpMethod = "GET"
         
         // For unknown file size (end is near Int64.max), use open-ended range or no range
@@ -232,12 +399,22 @@ class URLSessionHandler: NetworkHandler {
             request.setValue("bytes=\(start)-\(end)", forHTTPHeaderField: "Range")
         }
         
-        addBrowserHeaders(to: &request)
+        addBrowserHeaders(to: &request, referer: refererURL)
         
         let (asyncBytes, response) = try await session.bytes(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw NetworkError.connectionFailed
+        }
+        
+        // Handle redirects during download - update resolved URL and retry
+        if (300...399).contains(httpResponse.statusCode) {
+            if let location = httpResponse.value(forHTTPHeaderField: "Location"),
+               let redirectURL = URL(string: location, relativeTo: downloadURL)?.absoluteURL {
+                print("URLSessionHandler: Redirect during download to \(redirectURL)")
+                self.resolvedURL = redirectURL
+                return try await downloadRange(url: url, start: start, end: end)
+            }
         }
 
         // Handle specific error codes
@@ -277,5 +454,21 @@ class URLSessionHandler: NetworkHandler {
                 }
             }
         }
+    }
+    
+    /// Returns the resolved download URL (after redirect resolution)
+    func getResolvedURL() -> URL? {
+        return resolvedURL
+    }
+    
+    /// Returns the original URL (before redirect resolution)
+    func getOriginalURL() -> URL? {
+        return originalURL
+    }
+    
+    /// Resets the cached URLs (useful when starting a new download)
+    func resetURLCache() {
+        resolvedURL = nil
+        originalURL = nil
     }
 }

@@ -54,12 +54,29 @@ class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
             return ["success": false, "message": "Missing URL"]
         }
         
+        // Parse redirect chain if provided
+        let redirectChain = message["redirectChain"] as? [String]
+        
+        // Parse headers if provided
+        let requestHeaders = message["requestHeaders"] as? [String: String]
+        let responseHeaders = message["responseHeaders"] as? [String: String]
+        
         let request = BrowserDownloadRequest(
             url: urlString,
+            originalUrl: message["originalUrl"] as? String,
+            filename: message["filename"] as? String,
+            redirectChain: redirectChain,
+            requestHeaders: requestHeaders,
+            responseHeaders: responseHeaders,
             cookies: message["cookies"] as? String,
             referrer: message["referrer"] as? String,
             userAgent: message["userAgent"] as? String,
-            filename: message["filename"] as? String
+            authorization: message["authorization"] as? String,
+            contentType: message["contentType"] as? String,
+            contentLength: message["contentLength"] as? Int64,
+            contentDisposition: message["contentDisposition"] as? String,
+            captureMethod: message["captureMethod"] as? String,
+            timestamp: message["timestamp"] as? Int64
         )
         
         let success = savePendingDownload(request)

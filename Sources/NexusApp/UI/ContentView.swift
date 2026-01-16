@@ -354,8 +354,15 @@ struct ContentView: View {
             Text(lastErrorMessage)
         }
         .sheet(isPresented: $showAddSheet) {
-            AddDownloadSheet(urlString: $newURLString, modelContext: modelContext) { urlString, path, connectionCount, queueID, startPaused in
-                addDownload(urlString: urlString, path: path, connectionCount: connectionCount, queueID: queueID, startPaused: startPaused)
+            AddDownloadSheet(urlString: $newURLString, modelContext: modelContext) { urlString, path, connectionCount, queueID, startPaused, formatID in
+                addDownload(
+                    urlString: urlString,
+                    path: path,
+                    connectionCount: connectionCount,
+                    queueID: queueID,
+                    startPaused: startPaused,
+                    preferredFormatID: formatID
+                )
             }
         }
         .confirmationDialog(
@@ -391,7 +398,14 @@ struct ContentView: View {
     @State private var showErrorAlert = false
     @State private var lastErrorMessage = ""
 
-    private func addDownload(urlString: String, path: String, connectionCount: Int = 8, queueID: UUID? = nil, startPaused: Bool = false) {
+    private func addDownload(
+        urlString: String,
+        path: String,
+        connectionCount: Int = 8,
+        queueID: UUID? = nil,
+        startPaused: Bool = false,
+        preferredFormatID: String? = nil
+    ) {
         Task {
             do {
                 let extractor = MediaExtractor.shared
@@ -400,7 +414,10 @@ struct ContentView: View {
                 // For media URLs, use addMediaDownload
                 if extractor.isMediaURL(trimmedURL) {
                     _ = try await DownloadManager.shared.addMediaDownload(
-                        urlString: trimmedURL, destinationFolder: path) // Media URLs auto-start after extraction completes
+                        urlString: trimmedURL,
+                        destinationFolder: path,
+                        preferredFormatID: preferredFormatID
+                    ) // Media URLs auto-start after extraction completes
                 } else {
                     // For regular URLs, use addDownload
                     // Manual downloads require file extension in URL
@@ -891,14 +908,17 @@ struct AddDownloadSheet: View {
     @Environment(\.dismiss) var dismiss
     @Binding var urlString: String
     @State private var destinationPath: String = ""
-    @State private var isExtracting = false
+    @State private var availableFormats: [MediaExtractor.MediaFormat] = []
+    @State private var selectedFormatID: String = "best"
+    @State private var isLoadingFormats = false
+    @State private var formatError: String?
     @State private var errorMessage: String?
     @State private var connectionCount: Int = 8
     @State private var selectedQueueID: UUID?
     @State private var startPaused: Bool = false
     @Query(sort: \DownloadQueue.name) private var queues: [DownloadQueue]
     let modelContext: ModelContext
-    let onAdd: (String, String, Int, UUID?, Bool) -> Void
+    let onAdd: (String, String, Int, UUID?, Bool, String?) -> Void
 
     private var isMediaURL: Bool {
         let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -933,6 +953,46 @@ struct AddDownloadSheet: View {
                 Text("YouTube/Media URL detected - will extract video")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            if isMediaURL {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Resolution:")
+                            .frame(width: 120, alignment: .trailing)
+                        Picker("Resolution", selection: $selectedFormatID) {
+                            Text("Best (auto)").tag("best")
+                            ForEach(availableFormats) { format in
+                                Text(format.displayName).tag(format.id)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        Spacer()
+                    }
+                    
+                    HStack {
+                        Button(availableFormats.isEmpty ? "Load Formats" : "Refresh Formats") {
+                            loadFormats()
+                        }
+                        .disabled(isLoadingFormats)
+                        
+                        if isLoadingFormats {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                        Spacer()
+                    }
+                    
+                    if let error = formatError {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    } else if availableFormats.isEmpty {
+                        Text("Uses best available combined format. Load formats to choose a specific resolution.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
 
             HStack {
@@ -987,7 +1047,8 @@ struct AddDownloadSheet: View {
                 Spacer()
 
                 Button("Add") {
-                    onAdd(urlString, destinationPath, connectionCount, selectedQueueID, startPaused)
+                    let formatID = isMediaURL ? selectedFormatID : nil
+                    onAdd(urlString, destinationPath, connectionCount, selectedQueueID, startPaused, formatID)
                     urlString = ""
                     destinationPath = ""
                     dismiss()
@@ -1003,6 +1064,11 @@ struct AddDownloadSheet: View {
             // Use Security-Scoped Bookmark if available, otherwise use Downloads folder
             destinationPath = SecurityScopedBookmark.getDefaultDownloadDirectoryPath()
         }
+        .onChange(of: urlString) { _ in
+            if isMediaURL {
+                resetFormatSelection()
+            }
+        }
     }
 
     private func chooseDestination() {
@@ -1017,6 +1083,55 @@ struct AddDownloadSheet: View {
             _ = SecurityScopedBookmark.saveBookmark(for: url)
             _ = url.startAccessingSecurityScopedResource()
         }
+    }
+
+    private func resetFormatSelection() {
+        availableFormats = []
+        selectedFormatID = "best"
+        formatError = nil
+        isLoadingFormats = false
+    }
+
+    private func loadFormats() {
+        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let requestedURL = trimmed
+        isLoadingFormats = true
+        formatError = nil
+        
+        Task {
+            do {
+                let formats = try await MediaExtractor.shared.listFormats(from: trimmed)
+                let combinedFormats = formats
+                    .filter { !$0.isAudioOnly && !$0.isVideoOnly }
+                    .sorted { formatHeight($0.resolution) > formatHeight($1.resolution) }
+                
+                await MainActor.run {
+                    guard urlString.trimmingCharacters(in: .whitespacesAndNewlines) == requestedURL else {
+                        isLoadingFormats = false
+                        return
+                    }
+                    availableFormats = combinedFormats
+                    if selectedFormatID != "best",
+                       !combinedFormats.contains(where: { $0.id == selectedFormatID }) {
+                        selectedFormatID = "best"
+                    }
+                    isLoadingFormats = false
+                }
+            } catch {
+                await MainActor.run {
+                    formatError = error.localizedDescription
+                    availableFormats = []
+                    isLoadingFormats = false
+                }
+            }
+        }
+    }
+    
+    private func formatHeight(_ resolution: String?) -> Int {
+        guard let resolution else { return 0 }
+        let digits = resolution.filter { $0.isNumber }
+        return Int(digits) ?? 0
     }
 }
 

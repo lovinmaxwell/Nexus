@@ -1,13 +1,17 @@
 {
   "manifest_version": 2,
   "name": "Nexus Download Manager",
-  "version": "1.0.0",
-  "description": "Intercept downloads and send them to Nexus Download Manager",
+  "version": "1.1.0",
+  "description": "Intercept downloads and send them to Nexus Download Manager with full header capture",
   "permissions": [
     "downloads",
     "contextMenus",
     "nativeMessaging",
     "activeTab",
+    "cookies",
+    "webRequest",
+    "webRequestBlocking",
+    "storage",
     "<all_urls>"
   ],
   "background": {
