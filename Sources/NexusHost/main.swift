@@ -1,11 +1,12 @@
 import Foundation
 
 struct DownloadRequest: Codable {
-    let url: String
+    let url: String?
     let cookies: String?
     let referrer: String?
     let userAgent: String?
     let filename: String?
+    let ping: Bool?
 }
 
 struct DownloadResponse: Codable {
@@ -53,6 +54,26 @@ class NativeMessagingHost {
         do {
             let request = try JSONDecoder().decode(DownloadRequest.self, from: data)
             
+            // Handle ping request
+            if request.ping == true {
+                let response = DownloadResponse(
+                    success: true,
+                    message: "Nexus is running",
+                    taskId: nil
+                )
+                return try JSONEncoder().encode(response)
+            }
+            
+            // Handle download request
+            guard let url = request.url, !url.isEmpty else {
+                let response = DownloadResponse(
+                    success: false,
+                    message: "No URL provided",
+                    taskId: nil
+                )
+                return try JSONEncoder().encode(response)
+            }
+            
             // Send to main app via distributed notification or file-based IPC
             let success = sendToMainApp(request: request)
             
@@ -74,6 +95,8 @@ class NativeMessagingHost {
     }
     
     private func sendToMainApp(request: DownloadRequest) -> Bool {
+        guard let url = request.url else { return false }
+        
         // Write request to a shared location that main app monitors
         let fileManager = FileManager.default
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -83,8 +106,25 @@ class NativeMessagingHost {
         do {
             try fileManager.createDirectory(at: pendingDir, withIntermediateDirectories: true)
             
+            // Create a simple request structure for the main app
+            struct BrowserRequest: Codable {
+                let url: String
+                let cookies: String?
+                let referrer: String?
+                let userAgent: String?
+                let filename: String?
+            }
+            
+            let browserRequest = BrowserRequest(
+                url: url,
+                cookies: request.cookies,
+                referrer: request.referrer,
+                userAgent: request.userAgent,
+                filename: request.filename
+            )
+            
             let requestFile = pendingDir.appendingPathComponent("\(UUID().uuidString).json")
-            let data = try JSONEncoder().encode(request)
+            let data = try JSONEncoder().encode(browserRequest)
             try data.write(to: requestFile)
             
             // Post distributed notification

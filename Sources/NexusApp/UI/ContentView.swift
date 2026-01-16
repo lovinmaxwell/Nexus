@@ -298,7 +298,7 @@ struct ContentView: View {
                         Button {
                             showSiteGrabber = true
                         } label: {
-                            Label("Site Grabber", systemImage: "spider")
+                            Label("Site Grabber", systemImage: "globe.badge.chevron.backward")
                         }
                         .help("Grab assets from a website")
                     }
@@ -403,6 +403,7 @@ struct ContentView: View {
                         urlString: trimmedURL, destinationFolder: path) // Media URLs auto-start after extraction completes
                 } else {
                     // For regular URLs, use addDownload
+                    // Manual downloads require file extension in URL
                     guard let url = URL(string: trimmedURL) else {
                         lastErrorMessage = "Invalid URL"
                         showErrorAlert = true
@@ -414,8 +415,11 @@ struct ContentView: View {
                     
                     if await DownloadManager.shared.addDownload(
                         url: url, destinationPath: path, connectionCount: connectionCount,
-                        queueID: queueID, startPaused: startPaused) != nil {
+                        queueID: queueID, startPaused: startPaused, requireExtension: true) != nil {
                         // Task will auto-start unless startPaused is true
+                    } else {
+                        lastErrorMessage = "URL must have a file extension. Browser downloads will automatically detect the extension."
+                        showErrorAlert = true
                     }
                 }
             } catch {
@@ -462,8 +466,8 @@ struct DownloadRowView: View {
     @State private var currentSpeed: Double = 0
     @State private var timeRemaining: TimeInterval? = nil
     
-    // Throttled UI updates: 0.5-1.0 second interval to reduce CPU usage
-    let timer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
+    // Real-time UI updates: 0.1 second interval for fluent updates
+    let timer = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -529,24 +533,25 @@ struct DownloadRowView: View {
     }
     
     private func updateProgress() {
-        guard task.status == .running else {
-            currentSpeed = 0
-            timeRemaining = nil
-            return
-        }
-        
-        Task {
-            if let progress = await DownloadManager.shared.getProgress(taskID: task.id) {
-                await MainActor.run {
-                    currentSpeed = progress.speed
-                    if progress.speed > 0 && progress.totalBytes > 0 {
-                        let remaining = Double(progress.totalBytes - progress.downloadedBytes) / progress.speed
-                        timeRemaining = remaining > 0 ? remaining : 0
-                    } else {
-                        timeRemaining = nil
+        // Update progress from task segments directly for real-time updates
+        // This avoids async calls and provides immediate UI feedback
+        if task.status == .running {
+            Task {
+                if let progress = await DownloadManager.shared.getProgress(taskID: task.id) {
+                    await MainActor.run {
+                        currentSpeed = progress.speed
+                        if progress.speed > 0 && progress.totalBytes > 0 {
+                            let remaining = Double(progress.totalBytes - progress.downloadedBytes) / progress.speed
+                            timeRemaining = remaining > 0 ? remaining : 0
+                        } else {
+                            timeRemaining = nil
+                        }
                     }
                 }
             }
+        } else {
+            currentSpeed = 0
+            timeRemaining = nil
         }
     }
 

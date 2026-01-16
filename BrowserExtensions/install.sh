@@ -6,8 +6,29 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-NEXUS_HOST_PATH="/Applications/Nexus.app/Contents/MacOS/NexusHost"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
+# Find NexusHost binary - check multiple locations
+if [ -f "/Applications/Nexus.app/Contents/MacOS/NexusHost" ]; then
+    NEXUS_HOST_PATH="/Applications/Nexus.app/Contents/MacOS/NexusHost"
+elif [ -f "$PROJECT_DIR/.build/release/NexusHost" ]; then
+    NEXUS_HOST_PATH="$PROJECT_DIR/.build/release/NexusHost"
+elif [ -f "$PROJECT_DIR/.build/debug/NexusHost" ]; then
+    NEXUS_HOST_PATH="$PROJECT_DIR/.build/debug/NexusHost"
+else
+    echo "NexusHost binary not found. Building..."
+    cd "$PROJECT_DIR"
+    swift build -c release --product NexusHost
+    NEXUS_HOST_PATH="$PROJECT_DIR/.build/release/NexusHost"
+fi
+
+# Verify the binary exists
+if [ ! -f "$NEXUS_HOST_PATH" ]; then
+    echo "ERROR: Could not find or build NexusHost binary"
+    exit 1
+fi
+
+echo "Using NexusHost at: $NEXUS_HOST_PATH"
 echo "Installing Nexus Browser Extensions..."
 
 # Chrome Native Messaging Host
@@ -21,7 +42,7 @@ if [ -d "$HOME/Library/Application Support/Google/Chrome" ]; then
   "path": "$NEXUS_HOST_PATH",
   "type": "stdio",
   "allowed_origins": [
-    "chrome-extension://*/""
+    "chrome-extension://*/*"
   ]
 }
 EOF

@@ -67,6 +67,7 @@ struct NexusApp: App {
 
     init() {
         NSApplication.shared.setActivationPolicy(.regular)
+        configureAppIcon()
         DownloadManager.shared.setModelContainer(sharedModelContainer)
         // QueueManager context is set inside DownloadManager.setModelContainer
         SynchronizationQueueManager.shared.setModelContext(sharedModelContainer.mainContext)
@@ -85,6 +86,23 @@ struct NexusApp: App {
         Task {
             _ = await YtDlpUpdater.shared.performAutoCheckIfNeeded()
         }
+    }
+
+    private func configureAppIcon() {
+        // Try Bundle.module first (SPM resources), then Bundle.main
+        let iconURL = Bundle.module.url(forResource: "NexusAppIcon", withExtension: "png")
+            ?? Bundle.main.url(forResource: "NexusAppIcon", withExtension: "png")
+        
+        guard let url = iconURL else {
+            print("App icon not found in bundle: NexusAppIcon.png")
+            return
+        }
+        guard let image = NSImage(contentsOf: url) else {
+            print("Failed to load app icon image at \(url)")
+            return
+        }
+        NSApplication.shared.applicationIconImage = image
+        print("App icon loaded successfully")
     }
 
     var body: some Scene {

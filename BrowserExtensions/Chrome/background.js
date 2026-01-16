@@ -18,20 +18,10 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 });
 
 chrome.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => {
-  const fileExtensions = [
-    ".exe", ".msi", ".dmg", ".pkg", ".zip", ".rar", ".7z", ".tar", ".gz",
-    ".iso", ".mp4", ".mkv", ".avi", ".mov", ".mp3", ".flac", ".wav",
-    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"
-  ];
-  
-  const url = downloadItem.url.toLowerCase();
-  const shouldIntercept = fileExtensions.some(ext => url.includes(ext)) || 
-                          downloadItem.fileSize > 10 * 1024 * 1024;
-  
-  if (shouldIntercept) {
-    chrome.downloads.cancel(downloadItem.id);
-    sendToNexus(downloadItem.url, null, downloadItem.filename);
-  }
+  // Intercept ALL browser downloads - Nexus will figure out the file extension
+  // from Content-Type headers or Content-Disposition if URL doesn't have one
+  chrome.downloads.cancel(downloadItem.id);
+  sendToNexus(downloadItem.url, null, downloadItem.filename);
 });
 
 async function sendToNexus(url, tab, filename) {
@@ -69,7 +59,7 @@ async function getCookies(url) {
 function showNotification(title, message) {
   chrome.notifications.create({
     type: "basic",
-    iconUrl: "icons/icon128.png",
+    iconUrl: "icons/icon.png",
     title: title,
     message: message
   });

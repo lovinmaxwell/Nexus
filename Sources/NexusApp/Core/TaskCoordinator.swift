@@ -13,8 +13,10 @@ actor TaskCoordinator {
     private var segmentProgress: [UUID: SegmentProgress] = [:]
 
     let maxConnections: Int
-    private let persistenceInterval: TimeInterval = 30.0
+    private let persistenceInterval: TimeInterval = 1.0  // Save every second for real-time UI updates
     private var persistenceTask: Task<Void, Never>?
+    private var lastSaveTime: Date = Date()
+    private let minSaveInterval: TimeInterval = 0.2  // Minimum 200ms between saves
 
     struct SegmentProgress {
         // Atomic counter for thread-safe updates (TaskCoordinator is an actor, so this is safe)
@@ -327,6 +329,13 @@ actor TaskCoordinator {
                     if var progress = segmentProgress[segmentID] {
                         progress.addBytes(Int64(chunk.count))
                         segmentProgress[segmentID] = progress
+                    }
+                    
+                    // Save more frequently for real-time UI updates (throttled)
+                    let now = Date()
+                    if now.timeIntervalSince(lastSaveTime) >= minSaveInterval {
+                        try? context.save()
+                        lastSaveTime = now
                     }
 
                     // For unknown size, completion is determined by stream ending, not offset

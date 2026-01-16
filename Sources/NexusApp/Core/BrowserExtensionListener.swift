@@ -87,6 +87,15 @@ class BrowserExtensionListener: ObservableObject {
             return
         }
         
+        let suggestedFilename: String? = {
+            guard let raw = request.filename?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !raw.isEmpty else {
+                return nil
+            }
+            let name = URL(fileURLWithPath: raw).lastPathComponent
+            return name.isEmpty ? nil : name
+        }()
+
         do {
             // Store cookies if provided
             if let cookieString = request.cookies, !cookieString.isEmpty {
@@ -96,6 +105,8 @@ class BrowserExtensionListener: ObservableObject {
                 }
             }
             
+            // For browser downloads, always allow even without extension
+            // First try as media download (YouTube, etc.)
             if let taskID = try await DownloadManager.shared.addMediaDownload(
                 urlString: request.url,
                 destinationFolder: destinationFolder
@@ -109,6 +120,22 @@ class BrowserExtensionListener: ObservableObject {
                 
                 await DownloadManager.shared.startDownload(taskID: taskID)
                 print("Browser extension: Started download for \(request.url)")
+            } else {
+                // Not a media URL, try as regular download (without extension requirement)
+                guard let url = URL(string: request.url) else {
+                    print("Browser extension: Invalid URL - \(request.url)")
+                    return
+                }
+                
+                if let taskID = await DownloadManager.shared.addDownload(
+                    url: url,
+                    destinationPath: destinationFolder,
+                    requireExtension: false,  // Browser downloads don't require extension
+                    suggestedFilename: suggestedFilename
+                ) {
+                    await DownloadManager.shared.startDownload(taskID: taskID)
+                    print("Browser extension: Started regular download for \(request.url)")
+                }
             }
         } catch {
             print("Browser extension: Failed to add download - \(error)")

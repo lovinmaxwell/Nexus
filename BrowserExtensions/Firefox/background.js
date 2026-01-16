@@ -18,20 +18,10 @@ browser.contextMenus.onClicked.addListener((info, tab) => {
 });
 
 browser.downloads.onCreated.addListener((downloadItem) => {
-  const fileExtensions = [
-    ".exe", ".msi", ".dmg", ".pkg", ".zip", ".rar", ".7z", ".tar", ".gz",
-    ".iso", ".mp4", ".mkv", ".avi", ".mov", ".mp3", ".flac", ".wav",
-    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"
-  ];
-  
-  const url = downloadItem.url.toLowerCase();
-  const shouldIntercept = fileExtensions.some(ext => url.includes(ext)) || 
-                          (downloadItem.fileSize && downloadItem.fileSize > 10 * 1024 * 1024);
-  
-  if (shouldIntercept) {
-    browser.downloads.cancel(downloadItem.id);
-    sendToNexus(downloadItem.url, null, downloadItem.filename);
-  }
+  // Intercept ALL browser downloads - Nexus will figure out the file extension
+  // from Content-Type headers or Content-Disposition if URL doesn't have one
+  browser.downloads.cancel(downloadItem.id);
+  sendToNexus(downloadItem.url, null, downloadItem.filename);
 });
 
 async function sendToNexus(url, tab, filename) {
