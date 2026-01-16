@@ -35,17 +35,33 @@ echo "Installing Nexus Browser Extensions..."
 CHROME_NM_DIR="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
 if [ -d "$HOME/Library/Application Support/Google/Chrome" ]; then
     mkdir -p "$CHROME_NM_DIR"
-    cat > "$CHROME_NM_DIR/com.nexus.host.json" << EOF
+    # Get Chrome extension ID from argument or prompt
+    CHROME_EXT_ID="${1:-}"
+    if [ -z "$CHROME_EXT_ID" ]; then
+        echo ""
+        echo "To find your Chrome extension ID:"
+        echo "1. Go to chrome://extensions"
+        echo "2. Load the extension from: $SCRIPT_DIR/Chrome"
+        echo "3. Copy the ID shown under the extension name"
+        echo ""
+        read -p "Enter your Chrome extension ID: " CHROME_EXT_ID
+    fi
+    
+    if [ -n "$CHROME_EXT_ID" ]; then
+        cat > "$CHROME_NM_DIR/com.nexus.host.json" << EOF
 {
   "name": "com.nexus.host",
   "description": "Nexus Download Manager Native Messaging Host",
   "path": "$NEXUS_HOST_PATH",
   "type": "stdio",
   "allowed_origins": [
-    "chrome-extension://*/*"
+    "chrome-extension://$CHROME_EXT_ID/"
   ]
 }
 EOF
+    else
+        echo "No extension ID provided, skipping Chrome native host setup"
+    fi
     echo "✓ Chrome Native Messaging Host installed"
 fi
 
