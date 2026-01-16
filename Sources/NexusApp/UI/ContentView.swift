@@ -316,7 +316,7 @@ struct ContentView: View {
                     .dropDestination(for: String.self) { items, _ in
                         // Handle dropped URLs
                         for item in items {
-                            if let url = URL(string: item) {
+                            if URL(string: item) != nil {
                                 let downloadsPath = SecurityScopedBookmark.getDefaultDownloadDirectoryPath()
                                 addDownload(urlString: item, path: downloadsPath)
                             }
@@ -399,12 +399,8 @@ struct ContentView: View {
                 
                 // For media URLs, use addMediaDownload
                 if extractor.isMediaURL(trimmedURL) {
-                    if let taskID = try await DownloadManager.shared.addMediaDownload(
-                        urlString: trimmedURL, destinationFolder: path)
-                    {
-                        // Media URLs auto-start after extraction completes
-                        // Update connection count if needed (stored in task metadata)
-                    }
+                    _ = try await DownloadManager.shared.addMediaDownload(
+                        urlString: trimmedURL, destinationFolder: path) // Media URLs auto-start after extraction completes
                 } else {
                     // For regular URLs, use addDownload
                     guard let url = URL(string: trimmedURL) else {
@@ -416,10 +412,9 @@ struct ContentView: View {
                     // Temporarily set connection count (will be used when creating TaskCoordinator)
                     DownloadManager.shared.maxConnectionsPerDownload = connectionCount
                     
-                    if let taskID = await DownloadManager.shared.addDownload(
+                    if await DownloadManager.shared.addDownload(
                         url: url, destinationPath: path, connectionCount: connectionCount,
-                        queueID: queueID, startPaused: startPaused)
-                    {
+                        queueID: queueID, startPaused: startPaused) != nil {
                         // Task will auto-start unless startPaused is true
                     }
                 }
@@ -1120,3 +1115,4 @@ struct SpeedLimitPopoverView: View {
         }
     }
 }
+

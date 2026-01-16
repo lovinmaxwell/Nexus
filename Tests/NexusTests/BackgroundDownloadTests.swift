@@ -25,8 +25,9 @@ final class BackgroundDownloadTests: XCTestCase {
     }
     
     func testBackgroundDownloadTaskCreation() {
+        // Use testfile.org for real download testing
         let task = DownloadTask(
-            sourceURL: URL(string: "https://example.com/file")!,
+            sourceURL: URL(string: "https://link.testfile.org/1MB")!,
             destinationPath: "/tmp/test-file"
         )
         context.insert(task)

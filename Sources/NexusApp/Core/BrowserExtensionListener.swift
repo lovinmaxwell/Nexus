@@ -80,7 +80,7 @@ class BrowserExtensionListener: ObservableObject {
     
     private func addDownloadFromBrowser(_ request: BrowserDownloadRequest) async {
         // Use Security-Scoped Bookmark if available
-        let destinationFolder = await SecurityScopedBookmark.getDefaultDownloadDirectoryPath()
+        let destinationFolder = SecurityScopedBookmark.getDefaultDownloadDirectoryPath()
         
         guard let url = URL(string: request.url) else {
             print("Browser extension: Invalid URL - \(request.url)")
@@ -101,7 +101,7 @@ class BrowserExtensionListener: ObservableObject {
                 destinationFolder: destinationFolder
             ) {
                 // Store cookies in task for later use
-                if let cookieString = request.cookies, let cookieData = cookieString.data(using: .utf8) {
+                if let cookieString = request.cookies, !cookieString.isEmpty {
                     // Cookies are already stored in HTTPCookieStorage, and will be used automatically
                     // We also store the raw cookie string in the task for persistence
                     // This is handled in DownloadManager.addDownload/addMediaDownload
@@ -115,3 +115,4 @@ class BrowserExtensionListener: ObservableObject {
         }
     }
 }
+

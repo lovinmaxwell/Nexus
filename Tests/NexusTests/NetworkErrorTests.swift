@@ -42,7 +42,7 @@ final class NetworkErrorTests: XCTestCase {
         let context = container.mainContext
 
         let task = DownloadTask(
-            sourceURL: URL(string: "http://example.com")!, destinationPath: "/tmp/test")
+            sourceURL: URL(string: "https://link.testfile.org/1MB")!, destinationPath: "/tmp/test")
         context.insert(task)
 
         let mockHandler = MockNetworkHandler()

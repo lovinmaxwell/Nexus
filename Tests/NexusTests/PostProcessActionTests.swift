@@ -31,7 +31,7 @@ final class PostProcessActionTests: XCTestCase {
         
         // Add a pending task
         let task1 = DownloadTask(
-            sourceURL: URL(string: "https://example.com/1")!,
+            sourceURL: URL(string: "https://link.testfile.org/1MB")!,
             destinationPath: "/tmp/1",
             status: .pending
         )
@@ -48,7 +48,7 @@ final class PostProcessActionTests: XCTestCase {
         
         // Add a running task
         let task2 = DownloadTask(
-            sourceURL: URL(string: "https://example.com/2")!,
+            sourceURL: URL(string: "https://link.testfile.org/1MB")!,
             destinationPath: "/tmp/2",
             status: .running
         )
@@ -86,7 +86,7 @@ final class PostProcessActionTests: XCTestCase {
         XCTAssertEqual(queue.completedTasksCount, 0)
         
         let task1 = DownloadTask(
-            sourceURL: URL(string: "https://example.com/1")!,
+            sourceURL: URL(string: "https://link.testfile.org/1MB")!,
             destinationPath: "/tmp/1",
             status: .complete
         )
@@ -94,7 +94,7 @@ final class PostProcessActionTests: XCTestCase {
         context.insert(task1)
         
         let task2 = DownloadTask(
-            sourceURL: URL(string: "https://example.com/2")!,
+            sourceURL: URL(string: "https://link.testfile.org/1MB")!,
             destinationPath: "/tmp/2",
             status: .running
         )
@@ -102,7 +102,7 @@ final class PostProcessActionTests: XCTestCase {
         context.insert(task2)
         
         let task3 = DownloadTask(
-            sourceURL: URL(string: "https://example.com/3")!,
+            sourceURL: URL(string: "https://link.testfile.org/1MB")!,
             destinationPath: "/tmp/3",
             status: .complete
         )

@@ -44,7 +44,7 @@ actor MemoryMappedFileHandler {
     
     /// Writes data using memory mapping for efficient large file operations.
     private func writeWithMemoryMapping(data: Data, at offset: Int64) throws {
-        guard let handle = fileHandle else { return }
+        guard fileHandle != nil else { return }
         
         let dataSize = Int64(data.count)
         let startRegion = offset / regionSize

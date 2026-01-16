@@ -17,7 +17,7 @@ final class ResumeValidationTests: XCTestCase {
     
     func testResumeCapabilityDetection() {
         let task = DownloadTask(
-            sourceURL: URL(string: "https://example.com/file")!,
+            sourceURL: URL(string: "https://link.testfile.org/1MB")!,
             destinationPath: "/tmp/file",
             totalSize: 1000
         )
@@ -34,7 +34,7 @@ final class ResumeValidationTests: XCTestCase {
     
     func testETagValidation() {
         let task = DownloadTask(
-            sourceURL: URL(string: "https://example.com/file")!,
+            sourceURL: URL(string: "https://link.testfile.org/1MB")!,
             destinationPath: "/tmp/file",
             totalSize: 1000
         )
@@ -46,7 +46,7 @@ final class ResumeValidationTests: XCTestCase {
     
     func testLastModifiedValidation() {
         let task = DownloadTask(
-            sourceURL: URL(string: "https://example.com/file")!,
+            sourceURL: URL(string: "https://link.testfile.org/1MB")!,
             destinationPath: "/tmp/file",
             totalSize: 1000
         )
@@ -59,7 +59,7 @@ final class ResumeValidationTests: XCTestCase {
     
     func testContentLengthValidation() {
         let task = DownloadTask(
-            sourceURL: URL(string: "https://example.com/file")!,
+            sourceURL: URL(string: "https://link.testfile.org/1MB")!,
             destinationPath: "/tmp/file",
             totalSize: 1000
         )
@@ -70,7 +70,7 @@ final class ResumeValidationTests: XCTestCase {
     
     func testSegmentValidation() {
         let task = DownloadTask(
-            sourceURL: URL(string: "https://example.com/file")!,
+            sourceURL: URL(string: "https://link.testfile.org/1MB")!,
             destinationPath: "/tmp/file",
             totalSize: 1000
         )

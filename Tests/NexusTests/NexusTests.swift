@@ -17,7 +17,8 @@ final class NexusTests: XCTestCase {
 
         try? FileManager.default.removeItem(atPath: destPath)
 
-        let sourceURL = URL(string: "http://speedtest.tele2.net/1MB.zip")!
+        // Use testfile.org for reliable test downloads
+        let sourceURL = URL(string: "https://link.testfile.org/1MB")!
         let task = DownloadTask(sourceURL: sourceURL, destinationPath: destPath)
         context.insert(task)
 
@@ -50,7 +51,8 @@ final class NexusTests: XCTestCase {
 
         try? FileManager.default.removeItem(atPath: destPath)
 
-        let sourceURL = URL(string: "http://speedtest.tele2.net/10MB.zip")!
+        // Use testfile.org for reliable test downloads
+        let sourceURL = URL(string: "https://link.testfile.org/10MB")!
         let task = DownloadTask(sourceURL: sourceURL, destinationPath: destPath)
         context.insert(task)
 
@@ -79,7 +81,7 @@ final class NexusTests: XCTestCase {
     }
 
     func testDownloadTaskModel() throws {
-        let url = URL(string: "https://example.com/file.zip")!
+        let url = URL(string: "https://link.testfile.org/1MB")!
         let task = DownloadTask(sourceURL: url, destinationPath: "/tmp/file.zip")
 
         XCTAssertEqual(task.sourceURL, url)

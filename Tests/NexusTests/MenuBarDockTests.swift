@@ -36,7 +36,7 @@ final class MenuBarDockTests: XCTestCase {
         
         // Add a running task
         let task = DownloadTask(
-            sourceURL: URL(string: "https://example.com/file")!,
+            sourceURL: URL(string: "https://link.testfile.org/1MB")!,
             destinationPath: "/tmp/file",
             status: .running
         )

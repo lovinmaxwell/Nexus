@@ -16,6 +16,12 @@ class PostProcessActionExecutor {
     
     /// Requests notification permission from the user.
     private func requestNotificationPermission() {
+        // Check if we're in a test environment (no bundle)
+        guard Bundle.main.bundleIdentifier != nil else {
+            print("PostProcessActionExecutor: Skipping notification permission in test environment")
+            return
+        }
+        
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
             if let error = error {
                 print("PostProcessActionExecutor: Failed to request notification permission - \(error)")
@@ -141,6 +147,12 @@ class PostProcessActionExecutor {
     ///
     /// - Parameter queue: The completed queue
     private func sendNotification(for queue: DownloadQueue) {
+        // Check if we're in a test environment (no bundle)
+        guard Bundle.main.bundleIdentifier != nil else {
+            print("PostProcessActionExecutor: Skipping notification in test environment for queue '\(queue.name)'")
+            return
+        }
+        
         let content = UNMutableNotificationContent()
         content.title = "Queue Complete"
         content.body = "All downloads in '\(queue.name)' have completed."

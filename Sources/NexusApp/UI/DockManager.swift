@@ -74,9 +74,7 @@ class DockManager: ObservableObject {
     private func updateDockIconWithProgress() {
         guard activeDownloadCount > 0 && globalProgress > 0 else {
             // Reset to default icon
-            if let appIcon = NSApplication.shared.applicationIconImage {
-                NSApplication.shared.dockTile.contentView = nil
-            }
+            NSApplication.shared.dockTile.contentView = nil
             return
         }
         
@@ -147,3 +145,4 @@ class DockProgressView: NSView {
         progressPath.stroke()
     }
 }
+

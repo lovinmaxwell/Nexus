@@ -17,7 +17,7 @@ final class DownloadTaskUITests: XCTestCase {
     
     func testDownloadedBytesCalculation() {
         let task = DownloadTask(
-            sourceURL: URL(string: "https://example.com/file")!,
+            sourceURL: URL(string: "https://link.testfile.org/1MB")!,
             destinationPath: "/tmp/file",
             totalSize: 1000
         )
@@ -37,7 +37,7 @@ final class DownloadTaskUITests: XCTestCase {
     
     func testSupportsResume() {
         let task = DownloadTask(
-            sourceURL: URL(string: "https://example.com/file")!,
+            sourceURL: URL(string: "https://link.testfile.org/1MB")!,
             destinationPath: "/tmp/file"
         )
         
@@ -53,7 +53,7 @@ final class DownloadTaskUITests: XCTestCase {
     
     func testTimeRemainingCalculation() {
         let task = DownloadTask(
-            sourceURL: URL(string: "https://example.com/file")!,
+            sourceURL: URL(string: "https://link.testfile.org/1MB")!,
             destinationPath: "/tmp/file",
             totalSize: 1000
         )
@@ -69,7 +69,7 @@ final class DownloadTaskUITests: XCTestCase {
     
     func testCurrentSpeed() {
         let task = DownloadTask(
-            sourceURL: URL(string: "https://example.com/file")!,
+            sourceURL: URL(string: "https://link.testfile.org/1MB")!,
             destinationPath: "/tmp/file"
         )
         

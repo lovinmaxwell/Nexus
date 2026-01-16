@@ -6,17 +6,22 @@ import XCTest
 @MainActor
 final class SiteGrabberTests: XCTestCase {
     func testAssetTypeDetection() {
-        XCTAssertEqual(SiteGrabber.AssetType.from(url: URL(string: "https://example.com/image.jpg")!), .image)
+        // Use real image URLs for better testing
+        XCTAssertEqual(SiteGrabber.AssetType.from(url: URL(string: "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400&q=80")!), .image)
+        XCTAssertEqual(SiteGrabber.AssetType.from(url: URL(string: "https://link.testfile.org/1MB")!), .other) // testfile.org doesn't specify extension
+        XCTAssertEqual(SiteGrabber.AssetType.from(url: URL(string: "https://cdn.pixabay.com/photo/2015/04/23/22/00/tree-736885_1280.jpg")!), .image)
+        XCTAssertEqual(SiteGrabber.AssetType.from(url: URL(string: "https://link.testfile.org/500MB")!), .other)
+        // Keep some example.com for testing edge cases
         XCTAssertEqual(SiteGrabber.AssetType.from(url: URL(string: "https://example.com/doc.pdf")!), .document)
         XCTAssertEqual(SiteGrabber.AssetType.from(url: URL(string: "https://example.com/audio.mp3")!), .audio)
         XCTAssertEqual(SiteGrabber.AssetType.from(url: URL(string: "https://example.com/video.mp4")!), .video)
-        XCTAssertEqual(SiteGrabber.AssetType.from(url: URL(string: "https://example.com/file.xyz")!), .other)
     }
     
     func testGrabbedAssetEquality() {
-        let url1 = URL(string: "https://example.com/file.jpg")!
-        let url2 = URL(string: "https://example.com/file.jpg")!
-        let url3 = URL(string: "https://example.com/other.jpg")!
+        // Use real image URLs
+        let url1 = URL(string: "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400&q=80")!
+        let url2 = URL(string: "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400&q=80")!
+        let url3 = URL(string: "https://cdn.pixabay.com/photo/2015/04/23/22/00/tree-736885_1280.jpg")!
         
         let asset1 = SiteGrabber.GrabbedAsset(url: url1, type: .image)
         let asset2 = SiteGrabber.GrabbedAsset(url: url2, type: .image)

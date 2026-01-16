@@ -87,58 +87,50 @@ class DownloadManager {
     /// - Returns: Tuple of (final URL, filename) or nil if resolution fails.
     private func resolveDownloadURL(_ url: URL) async -> (URL, String)? {
         var currentURL = url
-        var redirectCount = 0
-        let maxRedirects = 10
-        var useGET = false  // Start with HEAD, fall back to GET if needed
         
-        while redirectCount < maxRedirects {
+        // Try up to two attempts: first with HEAD, then fallback to GET if needed
+        for attempt in 0..<2 {
             var request = URLRequest(url: currentURL)
+            let useGET = (attempt == 1)
             request.httpMethod = useGET ? "GET" : "HEAD"
             request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
             request.setValue("text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8", forHTTPHeaderField: "Accept")
             request.setValue("en-US,en;q=0.9", forHTTPHeaderField: "Accept-Language")
             request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
             request.setValue("1", forHTTPHeaderField: "Upgrade-Insecure-Requests")
-            // Don't set Referer
-            
+
             do {
                 let (_, response) = try await URLSession.shared.data(for: request)
-                
+
                 guard let httpResponse = response as? HTTPURLResponse else {
                     break
                 }
-                
+
                 // URLSession follows redirects automatically, so response.url is the final URL
                 if let finalURL = response.url, finalURL != currentURL {
                     print("DownloadManager: URLSession auto-redirected to \(finalURL)")
                     currentURL = finalURL
                 }
-                
+
                 // If HEAD returns 403/405, try GET instead
                 if !useGET && (httpResponse.statusCode == 403 || httpResponse.statusCode == 405) {
                     print("DownloadManager: HEAD not allowed (status \(httpResponse.statusCode)), trying GET request...")
-                    useGET = true
                     continue
                 }
-                
+
                 // Extract filename from Content-Disposition header if available
                 var filename: String? = nil
                 if let contentDisposition = httpResponse.value(forHTTPHeaderField: "Content-Disposition") {
-                    // Parse: attachment; filename="500MB-CZIPtestfile.org.zip" or filename*=UTF-8''filename.zip
-                    // Try standard filename first
                     if let filenameMatch = contentDisposition.range(of: #"filename\*?=(['"]?)([^'";\n]+)\1"#, options: .regularExpression) {
                         let filenamePart = String(contentDisposition[filenameMatch])
-                        // Extract the actual filename value
                         if let equalsIndex = filenamePart.firstIndex(of: "=") {
                             var name = String(filenamePart[filenamePart.index(after: equalsIndex)...])
                             name = name.trimmingCharacters(in: .whitespaces)
-                            // Remove quotes if present
                             if name.hasPrefix("\"") && name.hasSuffix("\"") {
                                 name = String(name.dropFirst().dropLast())
                             } else if name.hasPrefix("'") && name.hasSuffix("'") {
                                 name = String(name.dropFirst().dropLast())
                             }
-                            // Handle URL-encoded filenames (filename*=UTF-8''encoded)
                             if name.hasPrefix("UTF-8''") {
                                 name = String(name.dropFirst(7))
                                 if let decoded = name.removingPercentEncoding {
@@ -149,13 +141,10 @@ class DownloadManager {
                         }
                     }
                 }
-                
-                // If no Content-Disposition, use the URL's last path component
+
                 if filename == nil || filename!.isEmpty {
                     filename = currentURL.lastPathComponent
-                    // If still empty or just a path component, try to extract from query params
                     if filename == nil || filename!.isEmpty || filename == "/" {
-                        // Check if URL has a meaningful path
                         let pathComponents = currentURL.pathComponents.filter { $0 != "/" }
                         if let lastComponent = pathComponents.last, !lastComponent.isEmpty {
                             filename = lastComponent
@@ -164,20 +153,14 @@ class DownloadManager {
                         }
                     }
                 }
-                
+
                 print("DownloadManager: Resolved URL: \(currentURL), Filename: \(filename!)")
                 return (currentURL, filename!)
-                
+
             } catch {
                 print("DownloadManager: Error resolving URL: \(error)")
-                // If HEAD failed and we haven't tried GET, try GET
-                if !useGET {
-                    useGET = true
-                    continue
-                }
-                // Fallback to original URL
-                let fallbackFilename = url.lastPathComponent.isEmpty ? "download" : url.lastPathComponent
-                return (url, fallbackFilename)
+                // If HEAD failed, loop will try GET on next attempt
+                continue
             }
         }
         

@@ -41,11 +41,11 @@ final class QueueManagerTests: XCTestCase {
 
         // Create 3 tasks
         let task1 = DownloadTask(
-            sourceURL: URL(string: "https://example.com/1")!, destinationPath: "/tmp/1")
+            sourceURL: URL(string: "https://link.testfile.org/1MB")!, destinationPath: "/tmp/1")
         let task2 = DownloadTask(
-            sourceURL: URL(string: "https://example.com/2")!, destinationPath: "/tmp/2")
+            sourceURL: URL(string: "https://link.testfile.org/1MB")!, destinationPath: "/tmp/2")
         let task3 = DownloadTask(
-            sourceURL: URL(string: "https://example.com/3")!, destinationPath: "/tmp/3")
+            sourceURL: URL(string: "https://link.testfile.org/1MB")!, destinationPath: "/tmp/3")
 
         task1.queue = queue
         task2.queue = queue
@@ -160,13 +160,13 @@ final class QueueManagerTests: XCTestCase {
 
         // Create 3 tasks with different priorities
         let taskLow = DownloadTask(
-            sourceURL: URL(string: "https://example.com/low")!, destinationPath: "/tmp/low",
+            sourceURL: URL(string: "https://link.testfile.org/1MB")!, destinationPath: "/tmp/low",
             priority: 0)
         let taskHigh = DownloadTask(
-            sourceURL: URL(string: "https://example.com/high")!, destinationPath: "/tmp/high",
+            sourceURL: URL(string: "https://link.testfile.org/1MB")!, destinationPath: "/tmp/high",
             priority: 10)
         let taskMedium = DownloadTask(
-            sourceURL: URL(string: "https://example.com/medium")!, destinationPath: "/tmp/medium",
+            sourceURL: URL(string: "https://link.testfile.org/1MB")!, destinationPath: "/tmp/medium",
             priority: 5)
 
         taskLow.queue = queue
@@ -215,13 +215,13 @@ final class QueueManagerTests: XCTestCase {
         }
 
         let task1 = DownloadTask(
-            sourceURL: URL(string: "https://a.com")!, destinationPath: "a", priority: 0)
+            sourceURL: URL(string: "https://link.testfile.org/1MB")!, destinationPath: "a", priority: 0)
         let task2 = DownloadTask(
-            sourceURL: URL(string: "https://b.com")!, destinationPath: "b", priority: 10)
+            sourceURL: URL(string: "https://link.testfile.org/1MB")!, destinationPath: "b", priority: 10)
         let task3 = DownloadTask(
-            sourceURL: URL(string: "https://c.com")!, destinationPath: "c", priority: 5)
+            sourceURL: URL(string: "https://link.testfile.org/1MB")!, destinationPath: "c", priority: 5)
         let task4 = DownloadTask(
-            sourceURL: URL(string: "https://d.com")!, destinationPath: "d", priority: 10)
+            sourceURL: URL(string: "https://link.testfile.org/1MB")!, destinationPath: "d", priority: 10)
         // task4 has same priority as task2, but task2 is older (created first)
 
         task1.queue = queue
@@ -269,9 +269,9 @@ final class QueueManagerTests: XCTestCase {
 
         // Create 2 tasks
         let task1 = DownloadTask(
-            sourceURL: URL(string: "https://example.com/seq1")!, destinationPath: "/tmp/seq1")
+            sourceURL: URL(string: "https://link.testfile.org/1MB")!, destinationPath: "/tmp/seq1")
         let task2 = DownloadTask(
-            sourceURL: URL(string: "https://example.com/seq2")!, destinationPath: "/tmp/seq2")
+            sourceURL: URL(string: "https://link.testfile.org/1MB")!, destinationPath: "/tmp/seq2")
 
         task1.queue = queue
         task2.queue = queue

@@ -18,7 +18,7 @@ final class CrashRecoveryTests: XCTestCase {
     func testIncompleteTaskRecovery() {
         // Create a task with incomplete segments (simulating crash)
         let task = DownloadTask(
-            sourceURL: URL(string: "https://example.com/file")!,
+            sourceURL: URL(string: "https://link.testfile.org/1MB")!,
             destinationPath: "/tmp/file",
             totalSize: 1000,
             status: .running
@@ -45,7 +45,7 @@ final class CrashRecoveryTests: XCTestCase {
     
     func testSegmentValidation() {
         let task = DownloadTask(
-            sourceURL: URL(string: "https://example.com/file")!,
+            sourceURL: URL(string: "https://link.testfile.org/1MB")!,
             destinationPath: "/tmp/file",
             totalSize: 1000
         )
@@ -65,7 +65,7 @@ final class CrashRecoveryTests: XCTestCase {
     
     func testETagValidation() {
         let task = DownloadTask(
-            sourceURL: URL(string: "https://example.com/file")!,
+            sourceURL: URL(string: "https://link.testfile.org/1MB")!,
             destinationPath: "/tmp/file",
             totalSize: 1000
         )
