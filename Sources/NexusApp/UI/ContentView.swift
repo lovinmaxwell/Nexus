@@ -99,6 +99,7 @@ struct ContentView: View {
     @State private var customSpeedLimit: Double = 1.0
     @State private var customSpeedUnit: SpeedUnit = .mbps
     @State private var showQueueManager = false
+    @State private var showSiteGrabber = false
 
     var filteredTasks: [DownloadTask] {
         tasks.filter { selectedCategory.matches($0) }
@@ -293,6 +294,13 @@ struct ContentView: View {
                             Label("Add Download", systemImage: "plus")
                         }
                         .keyboardShortcut("n", modifiers: .command)
+                        
+                        Button {
+                            showSiteGrabber = true
+                        } label: {
+                            Label("Site Grabber", systemImage: "spider")
+                        }
+                        .help("Grab assets from a website")
                     }
                 }
             }
@@ -364,6 +372,9 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showQueueManager) {
             QueueManagerView()
+        }
+        .sheet(isPresented: $showSiteGrabber) {
+            SiteGrabberView()
         }
         .onAppear {
             DownloadManager.shared.setModelContainer(modelContext.container)
