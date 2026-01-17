@@ -921,12 +921,7 @@ struct AddDownloadSheet: View {
     let onAdd: (String, String, Int, UUID?, Bool, String?) -> Void
 
     private var isMediaURL: Bool {
-        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-        let mediaHosts = ["youtube.com", "youtu.be", "vimeo.com", "dailymotion.com", "twitch.tv"]
-        guard let url = URL(string: trimmed), let host = url.host?.lowercased() else {
-            return false
-        }
-        return mediaHosts.contains { host.contains($0) }
+        MediaExtractor.shared.isMediaURL(urlString)
     }
 
     var body: some View {
@@ -958,7 +953,7 @@ struct AddDownloadSheet: View {
             if isMediaURL {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text("Resolution:")
+                        Text("Format:")
                             .frame(width: 120, alignment: .trailing)
                         Picker("Resolution", selection: $selectedFormatID) {
                             Text("Best (auto)").tag("best")
@@ -988,7 +983,7 @@ struct AddDownloadSheet: View {
                             .font(.caption)
                             .foregroundStyle(.red)
                     } else if availableFormats.isEmpty {
-                        Text("Uses best available combined format. Load formats to choose a specific resolution.")
+                        Text("Uses best available format. Load formats to choose a specific resolution.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -1101,19 +1096,24 @@ struct AddDownloadSheet: View {
         
         Task {
             do {
-                let formats = try await MediaExtractor.shared.listFormats(from: trimmed)
-                let combinedFormats = formats
-                    .filter { !$0.isAudioOnly && !$0.isVideoOnly }
-                    .sorted { formatHeight($0.resolution) > formatHeight($1.resolution) }
+                let parsedURL = URL(string: trimmed)
+                let cookieFileURL = parsedURL.flatMap { try? NetscapeCookieWriter.writeCookies(for: $0) }
+                defer { NetscapeCookieWriter.cleanup(cookieFileURL) }
+                
+                let formats = try await MediaExtractor.shared.listFormats(
+                    from: trimmed,
+                    cookiesFileURL: cookieFileURL
+                )
+                let sortedFormats = formats.sorted { formatSortKey($0) > formatSortKey($1) }
                 
                 await MainActor.run {
                     guard urlString.trimmingCharacters(in: .whitespacesAndNewlines) == requestedURL else {
                         isLoadingFormats = false
                         return
                     }
-                    availableFormats = combinedFormats
+                    availableFormats = sortedFormats
                     if selectedFormatID != "best",
-                       !combinedFormats.contains(where: { $0.id == selectedFormatID }) {
+                       !sortedFormats.contains(where: { $0.id == selectedFormatID }) {
                         selectedFormatID = "best"
                     }
                     isLoadingFormats = false
@@ -1132,6 +1132,12 @@ struct AddDownloadSheet: View {
         guard let resolution else { return 0 }
         let digits = resolution.filter { $0.isNumber }
         return Int(digits) ?? 0
+    }
+    
+    private func formatSortKey(_ format: MediaExtractor.MediaFormat) -> Int {
+        let height = formatHeight(format.resolution)
+        let typeBoost = format.isAudioOnly ? -1000 : 0
+        return height + typeBoost
     }
 }
 

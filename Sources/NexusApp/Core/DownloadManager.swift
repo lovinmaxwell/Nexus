@@ -8,6 +8,7 @@ class DownloadManager {
     static let shared = DownloadManager()
 
     private var coordinators: [UUID: TaskCoordinator] = [:]
+    private var mediaCoordinators: [UUID: MediaDownloadCoordinator] = [:]
     private(set) var modelContainer: ModelContainer?
 
     var maxConnectionsPerDownload: Int = 8
@@ -22,7 +23,21 @@ class DownloadManager {
 
     func startDownload(taskID: UUID) async {
         guard let container = modelContainer else { return }
+        let context = container.mainContext
+        let descriptor = FetchDescriptor<DownloadTask>(predicate: #Predicate { $0.id == taskID })
+        let task = try? context.fetch(descriptor).first
 
+        if task?.requiresMuxing == true {
+            if mediaCoordinators[taskID] == nil {
+                let coordinator = MediaDownloadCoordinator(taskID: taskID, container: container)
+                mediaCoordinators[taskID] = coordinator
+            }
+            if let coordinator = mediaCoordinators[taskID] {
+                await coordinator.start()
+            }
+            return
+        }
+        
         if coordinators[taskID] == nil {
             let coordinator = TaskCoordinator(
                 taskID: taskID,
@@ -38,10 +53,18 @@ class DownloadManager {
     }
 
     func pauseDownload(taskID: UUID) async {
+        if let coordinator = mediaCoordinators[taskID] {
+            await coordinator.pause()
+            return
+        }
         await coordinators[taskID]?.pause()
     }
 
     func resumeDownload(taskID: UUID) async {
+        if let coordinator = mediaCoordinators[taskID] {
+            await coordinator.resume()
+            return
+        }
         await coordinators[taskID]?.resume()
     }
 
@@ -55,6 +78,7 @@ class DownloadManager {
 
         // Cleanup coordinator
         coordinators.removeValue(forKey: taskID)
+        mediaCoordinators.removeValue(forKey: taskID)
     }
 
     func notifyTaskFailed(taskID: UUID) {
@@ -68,9 +92,15 @@ class DownloadManager {
         // Cleanup coordinator? Maybe keep it for retry?
         // For now remove to free resources.
         coordinators.removeValue(forKey: taskID)
+        mediaCoordinators.removeValue(forKey: taskID)
     }
 
     func cancelDownload(taskID: UUID) async {
+        if let coordinator = mediaCoordinators[taskID] {
+            await coordinator.pause()
+            mediaCoordinators.removeValue(forKey: taskID)
+            return
+        }
         await coordinators[taskID]?.pause()
         coordinators.removeValue(forKey: taskID)
     }
@@ -78,6 +108,9 @@ class DownloadManager {
     func getProgress(taskID: UUID) async -> (
         totalBytes: Int64, downloadedBytes: Int64, speed: Double
     )? {
+        if let coordinator = mediaCoordinators[taskID] {
+            return await coordinator.getProgress()
+        }
         return await coordinators[taskID]?.getProgress()
     }
 
@@ -373,6 +406,108 @@ class DownloadManager {
         return !ext.isEmpty && ext.count <= 5
     }
 
+    private struct MediaFormatSelection {
+        let formatValue: String?
+        let fileExtension: String
+        let fileSize: Int64?
+        let resolution: String?
+        let requiresMuxing: Bool
+        let videoFormat: MediaExtractor.MediaFormat?
+        let audioFormat: MediaExtractor.MediaFormat?
+    }
+
+    private func selectMediaFormat(
+        formats: [MediaExtractor.MediaFormat],
+        preferredID: String
+    ) -> MediaFormatSelection {
+        let trimmedPreferred = preferredID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedPreferred = trimmedPreferred.isEmpty ? "best" : trimmedPreferred
+        
+        if normalizedPreferred != "best",
+           let exact = formats.first(where: { $0.id == normalizedPreferred }) {
+            if exact.isVideoOnly {
+                let audio = bestAudioFormat(formats)
+                return MediaFormatSelection(
+                    formatValue: audio == nil ? exact.id : "\(exact.id)+\(audio!.id)",
+                    fileExtension: exact.fileExtension,
+                    fileSize: exact.fileSize,
+                    resolution: exact.resolution,
+                    requiresMuxing: audio != nil,
+                    videoFormat: exact,
+                    audioFormat: audio
+                )
+            }
+            if exact.isAudioOnly {
+                return MediaFormatSelection(
+                    formatValue: exact.id,
+                    fileExtension: exact.fileExtension,
+                    fileSize: exact.fileSize,
+                    resolution: exact.resolution,
+                    requiresMuxing: false,
+                    videoFormat: nil,
+                    audioFormat: exact
+                )
+            }
+            return MediaFormatSelection(
+                formatValue: exact.id,
+                fileExtension: exact.fileExtension,
+                fileSize: exact.fileSize,
+                resolution: exact.resolution,
+                requiresMuxing: false,
+                videoFormat: nil,
+                audioFormat: nil
+            )
+        }
+        
+        if let combined = bestCombinedFormat(formats) {
+            return MediaFormatSelection(
+                formatValue: combined.id,
+                fileExtension: combined.fileExtension,
+                fileSize: combined.fileSize,
+                resolution: combined.resolution,
+                requiresMuxing: false,
+                videoFormat: nil,
+                audioFormat: nil
+            )
+        }
+        
+        let video = bestVideoFormat(formats)
+        let audio = bestAudioFormat(formats)
+        return MediaFormatSelection(
+            formatValue: (video != nil && audio != nil) ? "\(video!.id)+\(audio!.id)" : nil,
+            fileExtension: video?.fileExtension ?? audio?.fileExtension ?? "mp4",
+            fileSize: nil,
+            resolution: video?.resolution ?? audio?.resolution,
+            requiresMuxing: true,
+            videoFormat: video,
+            audioFormat: audio
+        )
+    }
+    
+    private func bestCombinedFormat(_ formats: [MediaExtractor.MediaFormat]) -> MediaExtractor.MediaFormat? {
+        let combined = formats.filter { !$0.isAudioOnly && !$0.isVideoOnly }
+        return combined.max { formatRank($0) < formatRank($1) }
+    }
+    
+    private func bestVideoFormat(_ formats: [MediaExtractor.MediaFormat]) -> MediaExtractor.MediaFormat? {
+        let video = formats.filter { $0.isVideoOnly && !$0.isAudioOnly }
+        return video.max { formatRank($0) < formatRank($1) }
+    }
+    
+    private func bestAudioFormat(_ formats: [MediaExtractor.MediaFormat]) -> MediaExtractor.MediaFormat? {
+        let audio = formats.filter { $0.isAudioOnly && !$0.isVideoOnly }
+        return audio.max { (formatBitrate($0), formatRank($0)) < (formatBitrate($1), formatRank($1)) }
+    }
+    
+    private func formatRank(_ format: MediaExtractor.MediaFormat) -> Int {
+        let height = format.resolution?.filter { $0.isNumber }
+        return Int(height ?? "") ?? 0
+    }
+    
+    private func formatBitrate(_ format: MediaExtractor.MediaFormat) -> Int64 {
+        return format.bitrate ?? 0
+    }
+
     func addDownload(
         url: URL, destinationPath: String, connectionCount: Int = 8,
         queueID: UUID? = nil, startPaused: Bool = false, requireExtension: Bool = true,
@@ -563,7 +698,13 @@ class DownloadManager {
                     }
                     
                     print("DownloadManager: Starting media extraction...")
-                    let info = try await extractor.extractMediaInfo(from: trimmedURLString)
+                    let cookiesFileURL = try? NetscapeCookieWriter.writeCookies(for: placeholderURL)
+                    defer { NetscapeCookieWriter.cleanup(cookiesFileURL) }
+                    
+                    let info = try await extractor.extractMediaInfo(
+                        from: trimmedURLString,
+                        cookiesFileURL: cookiesFileURL
+                    )
                     
                     // Update task with real info
                     let sanitizedTitle = info.title
@@ -572,44 +713,67 @@ class DownloadManager {
                         .replacingOccurrences(of: "\"", with: "'")
                         .replacingOccurrences(of: "\n", with: " ")
                     let trimmedFormatID = normalizedFormatID.isEmpty ? "best" : normalizedFormatID
-                    let selectedFormat = info.availableFormats.first { $0.id == trimmedFormatID }
-                    let filenameSuffix = selectedFormat?.resolution.flatMap { $0.isEmpty ? nil : $0 }
+                    
+                    let selection = selectMediaFormat(
+                        formats: info.availableFormats,
+                        preferredID: trimmedFormatID
+                    )
+                    
+                    if selection.requiresMuxing && (selection.videoFormat == nil || selection.audioFormat == nil) {
+                        task.status = .error
+                        task.errorMessage = "No compatible audio/video formats found"
+                        try? context.save()
+                        return
+                    }
+                    
+                    let filenameSuffix = selection.resolution.flatMap { $0.isEmpty ? nil : $0 }
                     let baseFilename = filenameSuffix == nil ? sanitizedTitle : "\(sanitizedTitle) - \(filenameSuffix!)"
-                    let fileExtension = selectedFormat?.fileExtension.isEmpty == false
-                        ? selectedFormat!.fileExtension
-                        : info.fileExtension
+                    let fileExtension = selection.fileExtension.isEmpty
+                        ? info.fileExtension
+                        : selection.fileExtension
                     let filename = "\(baseFilename).\(fileExtension)"
                     let destinationPath = (destinationFolder as NSString).appendingPathComponent(filename)
                     
                     // For YouTube videos, the directURL might be the original URL
                     // We'll use yt-dlp to download it directly
                     let downloadURL: URL
-                    if trimmedFormatID == "best" {
-                        if info.directURL == trimmedURLString || info.directURL.isEmpty {
+                    if selection.requiresMuxing {
+                        if let videoID = selection.videoFormat?.id,
+                           let audioID = selection.audioFormat?.id,
+                           videoID.hasPrefix("http"),
+                           audioID.hasPrefix("http") {
+                            task.mediaVideoURLString = videoID
+                            task.mediaAudioURLString = audioID
+                            downloadURL = placeholderURL
+                        } else {
+                            let formatValue = selection.formatValue ?? trimmedFormatID
                             let directURLString = try await extractor.getDirectURL(
                                 from: trimmedURLString,
-                                format: "best"
+                                format: formatValue,
+                                cookiesFileURL: cookiesFileURL
                             )
-                            guard let url = URL(string: directURLString) else {
+                            let parts = directURLString
+                                .split(separator: "\n")
+                                .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+                                .filter { !$0.isEmpty }
+                            guard parts.count >= 2 else {
                                 task.status = .error
-                                task.errorMessage = "Could not parse download URL"
+                                task.errorMessage = "Could not parse separate media URLs"
                                 try? context.save()
                                 return
                             }
-                            downloadURL = url
-                        } else {
-                            guard let url = URL(string: info.directURL) else {
-                                task.status = .error
-                                task.errorMessage = "Could not parse download URL"
-                                try? context.save()
-                                return
-                            }
-                            downloadURL = url
+                            task.mediaVideoURLString = parts[0]
+                            task.mediaAudioURLString = parts[1]
+                            downloadURL = placeholderURL
                         }
                     } else {
+                        task.mediaVideoURLString = nil
+                        task.mediaAudioURLString = nil
+                        let formatValue = selection.formatValue ?? trimmedFormatID
                         let directURLString = try await extractor.getDirectURL(
                             from: trimmedURLString,
-                            format: trimmedFormatID
+                            format: formatValue,
+                            cookiesFileURL: cookiesFileURL
                         )
                         guard let url = URL(string: directURLString) else {
                             task.status = .error
@@ -623,16 +787,16 @@ class DownloadManager {
                     // Update task properties
                     task.sourceURL = downloadURL
                     task.destinationPath = destinationPath
-                    task.totalSize = selectedFormat?.fileSize ?? info.fileSize ?? 0
+                    task.totalSize = selection.fileSize ?? info.fileSize ?? 0
                     task.displayName = sanitizedTitle
                     task.status = .pending
+                    task.originalURLString = trimmedURLString
+                    task.selectedFormatID = selection.formatValue ?? trimmedFormatID
+                    task.derivedFilename = filename
+                    task.requiresMuxing = selection.requiresMuxing
                     
-                    // Store original URL in a way we can detect it's a YouTube video
-                    // We'll check this in TaskCoordinator to use yt-dlp for download
-                    if trimmedURLString.contains("youtube.com") || trimmedURLString.contains("youtu.be") {
-                        // Mark this as needing yt-dlp download
-                        task.httpCookies = trimmedURLString.data(using: .utf8) // Temporary storage for original URL
-                    }
+                    // Store cookies (if any) for the original URL to aid authenticated downloads
+                    task.httpCookies = CookieStorage.serializeCookies(for: placeholderURL)
                     
                     try? context.save()
                     print("DownloadManager: Media info extracted, starting download - \(taskID)")

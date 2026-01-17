@@ -89,7 +89,7 @@ actor MediaExtractor {
     /// - Returns: `true` if the URL is a media site, HLS, or DASH stream.
     nonisolated func isMediaURL(_ urlString: String) -> Bool {
         let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-        let mediaHosts = ["youtube.com", "youtu.be", "vimeo.com", "dailymotion.com", "twitch.tv"]
+        let mediaHosts = ["youtube.com", "youtu.be", "youtube-nocookie.com", "vimeo.com", "dailymotion.com", "twitch.tv"]
         guard let url = URL(string: trimmed), let host = url.host?.lowercased() else {
             // Check if it's an adaptive streaming URL even without host
             return isAdaptiveStreamURL(trimmed)
@@ -183,7 +183,7 @@ actor MediaExtractor {
     /// - Parameter urlString: The URL to extract from.
     /// - Returns: Media information including available formats.
     /// - Throws: `MediaExtractorError` if extraction fails.
-    func extractMediaInfo(from urlString: String) async throws -> MediaInfo {
+    func extractMediaInfo(from urlString: String, cookiesFileURL: URL? = nil) async throws -> MediaInfo {
         // Check if it's an HLS stream first
         if isHLSURL(urlString) {
             return try await extractHLSInfo(from: urlString)
@@ -195,11 +195,11 @@ actor MediaExtractor {
         }
 
         // Use yt-dlp for other media
-        return try await extractWithYtDlp(from: urlString)
+        return try await extractWithYtDlp(from: urlString, cookiesFileURL: cookiesFileURL)
     }
 
     /// Extracts media info using yt-dlp.
-    private func extractWithYtDlp(from urlString: String) async throws -> MediaInfo {
+    private func extractWithYtDlp(from urlString: String, cookiesFileURL: URL? = nil) async throws -> MediaInfo {
         // Check if yt-dlp exists
         let path = ytDlpPath.path
         guard path != "/usr/bin/false" && FileManager.default.isExecutableFile(atPath: path) else {
@@ -208,11 +208,15 @@ actor MediaExtractor {
         
         let process = Process()
         process.executableURL = ytDlpPath
-        process.arguments = [
+        var args: [String] = [
             "-j",
             "--no-warnings",
-            urlString,
         ]
+        if let cookiesFileURL {
+            args.append(contentsOf: ["--cookies", cookiesFileURL.path])
+        }
+        args.append(urlString)
+        process.arguments = args
 
         let outputPipe = Pipe()
         let errorPipe = Pipe()
@@ -317,6 +321,11 @@ actor MediaExtractor {
             throw MediaExtractorError.extractionFailed("Could not decode M3U8 playlist")
         }
 
+        // DRM detection (SAMPLE-AES / Widevine / PlayReady)
+        if containsDRM(inHLS: playlistContent) {
+            throw MediaExtractorError.drmProtected
+        }
+        
         // Parse the M3U8 playlist
         let streams = parseM3U8Playlist(playlistContent, baseURL: url)
 
@@ -498,6 +507,11 @@ actor MediaExtractor {
             throw MediaExtractorError.extractionFailed("Could not decode MPD manifest")
         }
 
+        // DRM detection (Widevine / PlayReady / Marlin)
+        if containsDRM(inDASH: mpdContent) {
+            throw MediaExtractorError.drmProtected
+        }
+        
         // Parse the MPD manifest
         let representations = parseMPDManifest(mpdContent, baseURL: url)
 
@@ -512,8 +526,9 @@ actor MediaExtractor {
 
             let ext = extractExtensionFromMimeType(rep.mimeType)
 
+            let formatID = rep.baseURL ?? rep.id
             return MediaFormat(
-                id: rep.id,
+                id: formatID,
                 resolution: resolution,
                 fileExtension: ext,
                 fileSize: nil,
@@ -670,6 +685,33 @@ actor MediaExtractor {
         }
         return "mp4"
     }
+    
+    // MARK: - DRM Detection
+    
+    private func containsDRM(inHLS content: String) -> Bool {
+        let uppercased = content.uppercased()
+        if uppercased.contains("METHOD=SAMPLE-AES") || uppercased.contains("METHOD=SAMPLE-AES-CTR") {
+            return true
+        }
+        if uppercased.contains("KEYFORMAT=\"COM.WIDEVINE\"") ||
+            uppercased.contains("KEYFORMAT=\"COM.MICROSOFT.PLAYREADY\"") ||
+            uppercased.contains("KEYFORMAT=\"URN:UUID:") {
+            return true
+        }
+        return false
+    }
+    
+    private func containsDRM(inDASH content: String) -> Bool {
+        let lowercased = content.lowercased()
+        if lowercased.contains("contentprotection") &&
+            (lowercased.contains("widevine") ||
+             lowercased.contains("playready") ||
+             lowercased.contains("marlin") ||
+             lowercased.contains("urn:uuid")) {
+            return true
+        }
+        return false
+    }
 
     // MARK: - Direct URL Extraction
 
@@ -680,7 +722,11 @@ actor MediaExtractor {
     ///   - format: The format ID to download (default: "best").
     /// - Returns: Direct download URL.
     /// - Throws: `MediaExtractorError` if extraction fails.
-    func getDirectURL(from urlString: String, format: String = "best") async throws -> String {
+    func getDirectURL(
+        from urlString: String,
+        format: String = "best",
+        cookiesFileURL: URL? = nil
+    ) async throws -> String {
         // For HLS URLs, return as-is or the format URL
         if isHLSURL(urlString) {
             if format != "best" && format.hasPrefix("http") {
@@ -699,12 +745,16 @@ actor MediaExtractor {
 
         let process = Process()
         process.executableURL = ytDlpPath
-        process.arguments = [
+        var args: [String] = [
             "-f", format,
             "-g",
             "--no-warnings",
-            urlString,
         ]
+        if let cookiesFileURL {
+            args.append(contentsOf: ["--cookies", cookiesFileURL.path])
+        }
+        args.append(urlString)
+        process.arguments = args
 
         let outputPipe = Pipe()
         let errorPipe = Pipe()
@@ -736,7 +786,7 @@ actor MediaExtractor {
     /// - Parameter urlString: The media URL.
     /// - Returns: Array of available formats.
     /// - Throws: `MediaExtractorError` if listing fails.
-    func listFormats(from urlString: String) async throws -> [MediaFormat] {
+    func listFormats(from urlString: String, cookiesFileURL: URL? = nil) async throws -> [MediaFormat] {
         // For HLS, parse the playlist
         if isHLSURL(urlString) {
             let info = try await extractHLSInfo(from: urlString)
@@ -752,11 +802,15 @@ actor MediaExtractor {
         // Use yt-dlp to list formats
         let process = Process()
         process.executableURL = ytDlpPath
-        process.arguments = [
+        var args: [String] = [
             "-j",
             "--no-warnings",
-            urlString,
         ]
+        if let cookiesFileURL {
+            args.append(contentsOf: ["--cookies", cookiesFileURL.path])
+        }
+        args.append(urlString)
+        process.arguments = args
 
         let outputPipe = Pipe()
         let errorPipe = Pipe()
@@ -787,6 +841,7 @@ enum MediaExtractorError: Error, LocalizedError {
     case ytdlpNotFound
     case invalidURL
     case hlsParsingFailed(String)
+    case drmProtected
 
     var errorDescription: String? {
         switch self {
@@ -800,6 +855,8 @@ enum MediaExtractorError: Error, LocalizedError {
             return "The URL is invalid"
         case .hlsParsingFailed(let msg):
             return "Failed to parse HLS stream: \(msg)"
+        case .drmProtected:
+            return "This stream is DRM-protected and cannot be downloaded."
         }
     }
 }
