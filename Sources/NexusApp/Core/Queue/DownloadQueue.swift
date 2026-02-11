@@ -63,7 +63,7 @@ public final class DownloadQueue {
     }
 
     public var activeTasks: [DownloadTask] {
-        tasks.filter { $0.status == .running }
+        tasks.filter { $0.status == .running || $0.status == .connecting }
     }
     
     /// Returns true if all tasks in the queue are complete (no pending or running tasks).

@@ -59,7 +59,7 @@ class MenuBarManager: ObservableObject {
         
         guard let tasks = try? context.fetch(descriptor) else { return }
         
-        let activeTasks = tasks.filter { $0.status == .running }
+        let activeTasks = tasks.filter { $0.status == .running || $0.status == .connecting }
         activeDownloadCount = activeTasks.count
         
         // Calculate total speed
@@ -119,7 +119,7 @@ class MenuBarManager: ObservableObject {
         let descriptor = FetchDescriptor<DownloadTask>()
         guard let tasks = try? context.fetch(descriptor) else { return }
         
-        let hasRunning = tasks.contains { task in task.status == .running }
+        let hasRunning = tasks.contains { task in task.status == .running || task.status == .connecting }
         let hasPaused = tasks.contains { task in task.status == .paused }
         
         if hasRunning {

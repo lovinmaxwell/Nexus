@@ -41,7 +41,7 @@ class DockManager: ObservableObject {
         
         guard let tasks = try? context.fetch(descriptor) else { return }
         
-        let activeTasks = tasks.filter { $0.status == .running }
+        let activeTasks = tasks.filter { $0.status == .running || $0.status == .connecting }
         activeDownloadCount = activeTasks.count
         
         // Calculate global progress

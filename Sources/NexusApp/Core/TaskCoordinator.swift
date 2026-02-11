@@ -72,7 +72,8 @@ actor TaskCoordinator {
         isRunning = true
         isPaused = false
 
-        await updateTaskStatus(.running)
+        // Connection/initialization phase - immediate UX feedback
+        await updateTaskStatus(.connecting)
 
         let context = ModelContext(modelContainer)
         let id = taskID
@@ -151,6 +152,9 @@ actor TaskCoordinator {
             task.eTag = meta.eTag
             task.lastModified = meta.lastModified
             try context.save()
+
+            // Transition from connecting to running - segmentation ready
+            await updateTaskStatus(.running)
 
             // Only set file size if we know it, otherwise let it grow dynamically
             if meta.contentLength > 0 {
@@ -336,6 +340,17 @@ actor TaskCoordinator {
                     if now.timeIntervalSince(lastSaveTime) >= minSaveInterval {
                         try? context.save()
                         lastSaveTime = now
+                        // Broadcast progress for real-time UI responsiveness
+                        let progress = getProgress()
+                        let taskID = taskID
+                        Task { @MainActor in
+                            DownloadProgressBroadcaster.shared.update(
+                                taskID: taskID,
+                                downloadedBytes: progress.downloadedBytes,
+                                totalBytes: progress.totalBytes,
+                                speed: progress.speed
+                            )
+                        }
                     }
 
                     // For unknown size, completion is determined by stream ending, not offset
@@ -487,22 +502,31 @@ actor TaskCoordinator {
 
         if (try? context.fetch(descriptor).first) != nil {
             try? context.save()
-            print("State persisted for task \(id)")
+            let progress = getProgress()
+            Task { @MainActor in
+                DownloadProgressBroadcaster.shared.update(
+                    taskID: id,
+                    downloadedBytes: progress.downloadedBytes,
+                    totalBytes: progress.totalBytes,
+                    speed: progress.speed
+                )
+            }
         }
     }
 
     func getProgress() -> (totalBytes: Int64, downloadedBytes: Int64, speed: Double) {
-        let downloaded = segmentProgress.values.reduce(0) { $0 + $1.bytesDownloaded }
         let speed = segmentProgress.values.reduce(0.0) { $0 + $1.currentSpeed }
         
-        // Get total size from task
+        // Get total size and downloaded bytes from task segments (includes completed segments)
         let context = ModelContext(modelContainer)
         let id = taskID
         let descriptor = FetchDescriptor<DownloadTask>(predicate: #Predicate { $0.id == id })
-        if let task = try? context.fetch(descriptor).first, task.totalSize > 0 {
+        if let task = try? context.fetch(descriptor).first {
+            let downloaded = task.downloadedBytes
             return (task.totalSize, downloaded, speed)
         }
         
+        let downloaded = segmentProgress.values.reduce(0) { $0 + $1.bytesDownloaded }
         return (0, downloaded, speed)
     }
     

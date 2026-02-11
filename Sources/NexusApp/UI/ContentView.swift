@@ -136,7 +136,7 @@ struct ContentView: View {
                 Section("Queues") {
                     ForEach(queues) { queue in
                         let queueTasks = tasks.filter { $0.queue?.id == queue.id }
-                        let activeCount = queueTasks.filter { $0.status == .running }.count
+                        let activeCount = queueTasks.filter { $0.status == .running || $0.status == .connecting }.count
                         let pendingCount = queueTasks.filter { $0.status == .pending }.count
                         
                         HStack {
@@ -314,11 +314,12 @@ struct ContentView: View {
                     "Select a Download", systemImage: "arrow.down.circle",
                     description: Text("Choose a download from the sidebar"))
                     .dropDestination(for: String.self) { items, _ in
-                        // Handle dropped URLs
+                        let downloadsPath = SecurityScopedBookmark.getDefaultDownloadDirectoryPath()
                         for item in items {
                             if URL(string: item) != nil {
-                                let downloadsPath = SecurityScopedBookmark.getDefaultDownloadDirectoryPath()
-                                addDownload(urlString: item, path: downloadsPath)
+                                Task {
+                                    try? await addDownload(urlString: item, path: downloadsPath)
+                                }
                             }
                         }
                         return true
@@ -326,24 +327,24 @@ struct ContentView: View {
             }
         }
         .dropDestination(for: URL.self) { urls, _ in
-            // Handle dropped file URLs or web URLs
             let downloadsPath = SecurityScopedBookmark.getDefaultDownloadDirectoryPath()
             for url in urls {
                 if url.isFileURL {
-                    // If it's a file, extract URLs from it (e.g., .txt file with URLs)
-                    if let content = try? String(contentsOf: url),
-                       !content.isEmpty {
+                    if let content = try? String(contentsOf: url), !content.isEmpty {
                         let lines = content.components(separatedBy: .newlines)
                         for line in lines {
                             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
                             if !trimmed.isEmpty, URL(string: trimmed) != nil {
-                                addDownload(urlString: trimmed, path: downloadsPath)
+                                Task {
+                                    try? await addDownload(urlString: trimmed, path: downloadsPath)
+                                }
                             }
                         }
                     }
                 } else {
-                    // It's a web URL
-                    addDownload(urlString: url.absoluteString, path: downloadsPath)
+                    Task {
+                        try? await addDownload(urlString: url.absoluteString, path: downloadsPath)
+                    }
                 }
             }
             return true
@@ -355,7 +356,7 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showAddSheet) {
             AddDownloadSheet(urlString: $newURLString, modelContext: modelContext) { urlString, path, connectionCount, queueID, startPaused, formatID in
-                addDownload(
+                try await addDownload(
                     urlString: urlString,
                     path: path,
                     connectionCount: connectionCount,
@@ -405,44 +406,34 @@ struct ContentView: View {
         queueID: UUID? = nil,
         startPaused: Bool = false,
         preferredFormatID: String? = nil
-    ) {
-        Task {
-            do {
-                let extractor = MediaExtractor.shared
-                let trimmedURL = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-                
-                // For media URLs, use addMediaDownload
-                if extractor.isMediaURL(trimmedURL) {
-                    _ = try await DownloadManager.shared.addMediaDownload(
-                        urlString: trimmedURL,
-                        destinationFolder: path,
-                        preferredFormatID: preferredFormatID
-                    ) // Media URLs auto-start after extraction completes
-                } else {
-                    // For regular URLs, use addDownload
-                    // Manual downloads require file extension in URL
-                    guard let url = URL(string: trimmedURL) else {
-                        lastErrorMessage = "Invalid URL"
-                        showErrorAlert = true
-                        return
-                    }
-                    
-                    // Temporarily set connection count (will be used when creating TaskCoordinator)
-                    DownloadManager.shared.maxConnectionsPerDownload = connectionCount
-                    
-                    if await DownloadManager.shared.addDownload(
-                        url: url, destinationPath: path, connectionCount: connectionCount,
-                        queueID: queueID, startPaused: startPaused, requireExtension: true) != nil {
-                        // Task will auto-start unless startPaused is true
-                    } else {
-                        lastErrorMessage = "URL must have a file extension. Browser downloads will automatically detect the extension."
-                        showErrorAlert = true
-                    }
-                }
-            } catch {
-                print("Failed to add download: \(error)")
-                lastErrorMessage = "Failed to add download: \(error.localizedDescription)"
+    ) async throws {
+        let extractor = MediaExtractor.shared
+        let trimmedURL = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // For media URLs, use addMediaDownload
+        if extractor.isMediaURL(trimmedURL) {
+            _ = try await DownloadManager.shared.addMediaDownload(
+                urlString: trimmedURL,
+                destinationFolder: path,
+                preferredFormatID: preferredFormatID
+            )
+        } else {
+            // For regular URLs, use addDownload
+            guard let url = URL(string: trimmedURL) else {
+                lastErrorMessage = "Invalid URL"
                 showErrorAlert = true
+                throw NSError(domain: "Nexus", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"])
+            }
+            
+            DownloadManager.shared.maxConnectionsPerDownload = connectionCount
+            
+            let taskID = await DownloadManager.shared.addDownload(
+                url: url, destinationPath: path, connectionCount: connectionCount,
+                queueID: queueID, startPaused: startPaused, requireExtension: true)
+            if taskID == nil {
+                lastErrorMessage = "URL must have a file extension. Browser downloads will automatically detect the extension."
+                showErrorAlert = true
+                throw NSError(domain: "Nexus", code: -1, userInfo: [NSLocalizedDescriptionKey: "URL must have a file extension. Browser downloads will automatically detect the extension."])
             }
         }
     }
@@ -482,9 +473,10 @@ struct DownloadRowView: View {
     @Bindable var task: DownloadTask
     @State private var currentSpeed: Double = 0
     @State private var timeRemaining: TimeInterval? = nil
+    private let broadcaster = DownloadProgressBroadcaster.shared
     
-    // Real-time UI updates: 0.1 second interval for fluent updates
-    let timer = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
+    // Real-time UI: observe broadcaster (pushes ~5x/sec) + fallback timer for model-driven updates
+    let timer = Timer.publish(every: 0.15, on: .main, in: .common).autoconnect()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -498,7 +490,7 @@ struct DownloadRowView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 
-                if task.status == .running && currentSpeed > 0 {
+                if (task.status == .running || task.status == .connecting) && currentSpeed > 0 {
                     Text(formatSpeed(currentSpeed))
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -506,7 +498,7 @@ struct DownloadRowView: View {
 
                 Spacer()
                 
-                if task.status == .running, let remaining = timeRemaining {
+                if (task.status == .running || task.status == .connecting), let remaining = timeRemaining {
                     Text(formatTimeRemaining(remaining))
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -530,13 +522,17 @@ struct DownloadRowView: View {
                 }
             }
 
-            if task.status == .running || task.status == .extracting {
+            if task.status == .running || task.status == .extracting || task.status == .connecting {
                 if task.status == .extracting {
                     ProgressView()
                         .progressViewStyle(.linear)
-                } else {
-                    ProgressView(value: progress)
+                } else if task.status == .connecting {
+                    ProgressView()
                         .progressViewStyle(.linear)
+                } else {
+                    ProgressView(value: displayProgress)
+                        .progressViewStyle(.linear)
+                        .animation(.easeInOut(duration: 0.15), value: displayProgress)
                 }
             }
         }
@@ -549,16 +545,28 @@ struct DownloadRowView: View {
         }
     }
     
+    /// Progress from broadcaster (real-time) or task segments (fallback).
+    private var displayProgress: Double {
+        if let snapshot = broadcaster.snapshot(for: task.id), snapshot.totalBytes > 0 {
+            return snapshot.progress
+        }
+        return progress
+    }
+    
     private func updateProgress() {
-        // Update progress from task segments directly for real-time updates
-        // This avoids async calls and provides immediate UI feedback
+        // Prefer broadcaster for instant UX; fallback to async getProgress
         if task.status == .running {
+            if let snapshot = broadcaster.snapshot(for: task.id) {
+                currentSpeed = snapshot.speed
+                timeRemaining = snapshot.timeRemaining
+                return
+            }
             Task {
-                if let progress = await DownloadManager.shared.getProgress(taskID: task.id) {
+                if let p = await DownloadManager.shared.getProgress(taskID: task.id) {
                     await MainActor.run {
-                        currentSpeed = progress.speed
-                        if progress.speed > 0 && progress.totalBytes > 0 {
-                            let remaining = Double(progress.totalBytes - progress.downloadedBytes) / progress.speed
+                        currentSpeed = p.speed
+                        if p.speed > 0 && p.totalBytes > 0 {
+                            let remaining = Double(p.totalBytes - p.downloadedBytes) / p.speed
                             timeRemaining = remaining > 0 ? remaining : 0
                         } else {
                             timeRemaining = nil
@@ -581,6 +589,9 @@ struct DownloadRowView: View {
             case .pending:
                 Image(systemName: "clock.fill")
                     .foregroundStyle(.gray)
+            case .connecting:
+                Image(systemName: "link.circle.fill")
+                    .foregroundStyle(.blue)
             case .running:
                 Image(systemName: "arrow.down.circle.fill")
                     .foregroundStyle(.blue)
@@ -603,6 +614,7 @@ struct DownloadRowView: View {
         case .paused: return "Paused"
         case .running: return "Downloading..."
         case .pending: return "Pending"
+        case .connecting: return "Connecting to server..."
         case .complete: return "Complete"
         case .error: return task.errorMessage ?? "Error"
         case .extracting: return "Extracting media info..."
@@ -714,9 +726,9 @@ struct TaskDetailView: View {
                                     Spacer()
                                     HStack(spacing: 4) {
                                         Circle()
-                                            .fill(segment.isComplete ? .green : (task.status == .running ? .blue : .gray))
+                                            .fill(segment.isComplete ? .green : (task.status == .running || task.status == .connecting ? .blue : .gray))
                                             .frame(width: 8, height: 8)
-                                        Text(segment.isComplete ? "Complete" : (task.status == .running ? "Active" : "Pending"))
+                                        Text(segment.isComplete ? "Complete" : (task.status == .running || task.status == .connecting ? "Active" : "Pending"))
                                             .font(.caption2)
                                     }
                                     Spacer()
@@ -752,10 +764,10 @@ struct TaskDetailView: View {
                             }
                         }
                         .buttonStyle(.borderedProminent)
-                        .disabled(task.status == .extracting)
+                        .disabled(task.status == .extracting || task.status == .connecting)
                     }
 
-                    if task.status == .running {
+                    if task.status == .running || task.status == .connecting {
                         Button("Pause") {
                             Task {
                                 await DownloadManager.shared.pauseDownload(taskID: task.id)
@@ -828,6 +840,7 @@ struct TaskDetailView: View {
         case .paused: return "Paused"
         case .running: return "Downloading"
         case .pending: return "Pending"
+        case .connecting: return "Connecting to server..."
         case .complete: return "Complete"
         case .error: return task.errorMessage ?? "Error"
         case .extracting: return "Extracting media info..."
@@ -911,6 +924,8 @@ struct AddDownloadSheet: View {
     @State private var availableFormats: [MediaExtractor.MediaFormat] = []
     @State private var selectedFormatID: String = "best"
     @State private var isLoadingFormats = false
+    @State private var isAdding = false
+    @State private var addPhaseMessage: String?
     @State private var formatError: String?
     @State private var errorMessage: String?
     @State private var connectionCount: Int = 8
@@ -918,7 +933,7 @@ struct AddDownloadSheet: View {
     @State private var startPaused: Bool = false
     @Query(sort: \DownloadQueue.name) private var queues: [DownloadQueue]
     let modelContext: ModelContext
-    let onAdd: (String, String, Int, UUID?, Bool, String?) -> Void
+    let onAdd: (String, String, Int, UUID?, Bool, String?) async throws -> Void
 
     private var isMediaURL: Bool {
         MediaExtractor.shared.isMediaURL(urlString)
@@ -1033,24 +1048,31 @@ struct AddDownloadSheet: View {
                     .foregroundStyle(.red)
             }
 
+            if let phase = addPhaseMessage {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(phase)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             HStack {
                 Button("Cancel") {
                     dismiss()
                 }
                 .keyboardShortcut(.escape)
+                .disabled(isAdding)
 
                 Spacer()
 
                 Button("Add") {
-                    let formatID = isMediaURL ? selectedFormatID : nil
-                    onAdd(urlString, destinationPath, connectionCount, selectedQueueID, startPaused, formatID)
-                    urlString = ""
-                    destinationPath = ""
-                    dismiss()
+                    addDownload()
                 }
                 .keyboardShortcut(.return)
                 .buttonStyle(.borderedProminent)
-                .disabled(urlString.isEmpty || destinationPath.isEmpty)
+                .disabled(urlString.isEmpty || destinationPath.isEmpty || isAdding)
             }
         }
         .padding()
@@ -1062,6 +1084,33 @@ struct AddDownloadSheet: View {
         .onChange(of: urlString) { _ in
             if isMediaURL {
                 resetFormatSelection()
+            }
+        }
+    }
+
+    private func addDownload() {
+        guard !isAdding else { return }
+        isAdding = true
+        errorMessage = nil
+        addPhaseMessage = isMediaURL ? "Extracting media info..." : "Resolving URL..."
+        
+        Task {
+            do {
+                let formatID = isMediaURL ? selectedFormatID : nil
+                try await onAdd(urlString, destinationPath, connectionCount, selectedQueueID, startPaused, formatID)
+                await MainActor.run {
+                    urlString = ""
+                    destinationPath = ""
+                    addPhaseMessage = nil
+                    isAdding = false
+                    dismiss()
+                }
+            } catch {
+                await MainActor.run {
+                    addPhaseMessage = nil
+                    isAdding = false
+                    errorMessage = error.localizedDescription
+                }
             }
         }
     }

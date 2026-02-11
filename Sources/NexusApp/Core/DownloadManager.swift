@@ -53,6 +53,7 @@ class DownloadManager {
     }
 
     func pauseDownload(taskID: UUID) async {
+        DownloadProgressBroadcaster.shared.remove(taskID: taskID)
         if let coordinator = mediaCoordinators[taskID] {
             await coordinator.pause()
             return
@@ -69,6 +70,7 @@ class DownloadManager {
     }
 
     func notifyTaskComplete(taskID: UUID) {
+        DownloadProgressBroadcaster.shared.remove(taskID: taskID)
         guard let container = modelContainer else { return }
         let context = container.mainContext
         let descriptor = FetchDescriptor<DownloadTask>(predicate: #Predicate { $0.id == taskID })
@@ -82,6 +84,7 @@ class DownloadManager {
     }
 
     func notifyTaskFailed(taskID: UUID) {
+        DownloadProgressBroadcaster.shared.remove(taskID: taskID)
         guard let container = modelContainer else { return }
         let context = container.mainContext
         let descriptor = FetchDescriptor<DownloadTask>(predicate: #Predicate { $0.id == taskID })

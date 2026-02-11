@@ -8,6 +8,7 @@ public enum TaskStatus: Int, Codable {
     case error = 3
     case pending = 4
     case extracting = 5  // Extracting media info (YouTube, etc.)
+    case connecting = 6  // Connection/initialization phase (HEAD request, validation)
 }
 
 @Model
