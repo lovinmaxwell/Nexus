@@ -23,18 +23,18 @@ actor TaskCoordinator {
         var bytesDownloaded: Int64
         var startTime: Date
         var lastUpdateTime: Date
-        
+
         var currentSpeed: Double {
             let elapsed = lastUpdateTime.timeIntervalSince(startTime)
             return elapsed > 0 ? Double(bytesDownloaded) / elapsed : 0.0
         }
-        
+
         init(bytesDownloaded: Int64 = 0, startTime: Date = Date(), lastUpdateTime: Date = Date()) {
             self.bytesDownloaded = bytesDownloaded
             self.startTime = startTime
             self.lastUpdateTime = lastUpdateTime
         }
-        
+
         mutating func addBytes(_ bytes: Int64) {
             bytesDownloaded += bytes
             lastUpdateTime = Date()
@@ -88,7 +88,7 @@ actor TaskCoordinator {
         do {
             print("TaskCoordinator: Starting download for \(task.sourceURL)")
             print("TaskCoordinator: Destination: \(task.destinationPath)")
-            
+
             fileHandler = try SparseFileHandler(path: task.destinationPath)
 
             // Load cookies from task if available
@@ -107,24 +107,48 @@ actor TaskCoordinator {
             }
 
             // Perform HEAD request validation before resume
+            // Try URLSession first, fall back to curl if server rejects URLSession's TLS fingerprint
             print("TaskCoordinator: Performing HEAD request for validation...")
-            let meta = try await handler.headRequest(url: task.sourceURL)
-            print("TaskCoordinator: HEAD request successful - Size: \(meta.contentLength), Ranges: \(meta.acceptsRanges)")
+            var meta:
+                (contentLength: Int64, acceptsRanges: Bool, lastModified: Date?, eTag: String?)
+            do {
+                meta = try await handler.headRequest(url: task.sourceURL)
+            } catch {
+                let nsError = error as NSError
+                if nsError.domain == NSURLErrorDomain && nsError.code == -1005 {
+                    // Server rejected URLSession's TLS fingerprint — fall back to curl
+                    print(
+                        "TaskCoordinator: URLSession rejected by server (-1005), falling back to curl..."
+                    )
+                    let curlHandler = CurlNetworkHandler()
+                    networkHandler = curlHandler
+                    meta = try await curlHandler.headRequest(url: task.sourceURL)
+                } else {
+                    throw error
+                }
+            }
+            print(
+                "TaskCoordinator: HEAD request successful - Size: \(meta.contentLength), Ranges: \(meta.acceptsRanges)"
+            )
 
             // Validate resume capability
             if task.segments.count > 0 {
                 // Check if server still supports range requests
                 if !meta.acceptsRanges {
-                    print("TaskCoordinator: Server no longer supports range requests. Restarting download.")
+                    print(
+                        "TaskCoordinator: Server no longer supports range requests. Restarting download."
+                    )
                     // Clear segments to force full restart
                     task.segments.removeAll()
                     try context.save()
                 }
-                
+
                 // Validate resume integrity
                 if task.totalSize > 0 {
                     // Check ETag
-                    if let savedETag = task.eTag, let serverETag = meta.eTag, savedETag != serverETag {
+                    if let savedETag = task.eTag, let serverETag = meta.eTag,
+                        savedETag != serverETag
+                    {
                         print("ETag mismatch: Saved \(savedETag), Server \(serverETag)")
                         throw NetworkError.fileModified
                     }
@@ -139,10 +163,12 @@ actor TaskCoordinator {
                         )
                         throw NetworkError.fileModified
                     }
-                    
+
                     // Check Content-Length hasn't changed
                     if meta.contentLength > 0 && task.totalSize != meta.contentLength {
-                        print("Content-Length changed: Saved \(task.totalSize), Server \(meta.contentLength)")
+                        print(
+                            "Content-Length changed: Saved \(task.totalSize), Server \(meta.contentLength)"
+                        )
                         throw NetworkError.fileModified
                     }
                 }
@@ -257,7 +283,9 @@ actor TaskCoordinator {
     }
 
     @discardableResult
-    private func downloadSegmentWithInHalf(segmentID: UUID, url: URL, context: ModelContext) async -> Bool {
+    private func downloadSegmentWithInHalf(segmentID: UUID, url: URL, context: ModelContext) async
+        -> Bool
+    {
         guard !isPaused else { return true }
 
         let segDescriptor = FetchDescriptor<FileSegment>(
@@ -273,11 +301,11 @@ actor TaskCoordinator {
             return true
         }
 
-                segmentProgress[segmentID] = SegmentProgress(
-                    bytesDownloaded: 0,
-                    startTime: Date(),
-                    lastUpdateTime: Date()
-                )
+        segmentProgress[segmentID] = SegmentProgress(
+            bytesDownloaded: 0,
+            startTime: Date(),
+            lastUpdateTime: Date()
+        )
 
         var retryDelay: TimeInterval = 1.0
         let maxRetryDelay: TimeInterval = 60.0
@@ -293,8 +321,8 @@ actor TaskCoordinator {
 
                 // Fetch fresh offset in case it changed (though usually this actor owns it)
                 let currentStart = segment.currentOffset
-                let isUnknownSize = (end >= Int64.max - 1000) // Check if end is near max (unknown size)
-                
+                let isUnknownSize = (end >= Int64.max - 1000)  // Check if end is near max (unknown size)
+
                 if !isUnknownSize && currentStart > end {
                     segment.isComplete = true
                     try? context.save()
@@ -334,7 +362,7 @@ actor TaskCoordinator {
                         progress.addBytes(Int64(chunk.count))
                         segmentProgress[segmentID] = progress
                     }
-                    
+
                     // Save more frequently for real-time UI updates (throttled)
                     let now = Date()
                     if now.timeIntervalSince(lastSaveTime) >= minSaveInterval {
@@ -371,7 +399,9 @@ actor TaskCoordinator {
                         task.totalSize = currentOffset
                         segment.endOffset = currentOffset - 1
                         try? context.save()
-                        print("TaskCoordinator: Download complete - determined file size: \(currentOffset) bytes")
+                        print(
+                            "TaskCoordinator: Download complete - determined file size: \(currentOffset) bytes"
+                        )
                     }
                 } else if currentOffset > end {
                     segment.isComplete = true
@@ -454,7 +484,8 @@ actor TaskCoordinator {
         print("In-Half split: created new segment from \(midpoint) to \(newSegment.endOffset)")
 
         Task {
-            _ = await downloadSegmentWithInHalf(segmentID: newSegment.id, url: url, context: context)
+            _ = await downloadSegmentWithInHalf(
+                segmentID: newSegment.id, url: url, context: context)
         }
     }
 
@@ -475,7 +506,7 @@ actor TaskCoordinator {
 
         let success = await downloadSegmentWithInHalf(
             segmentID: segment.id, url: task.sourceURL, context: context)
-        
+
         if !success {
             throw NetworkError.connectionFailed
         }
@@ -516,7 +547,7 @@ actor TaskCoordinator {
 
     func getProgress() -> (totalBytes: Int64, downloadedBytes: Int64, speed: Double) {
         let speed = segmentProgress.values.reduce(0.0) { $0 + $1.currentSpeed }
-        
+
         // Get total size and downloaded bytes from task segments (includes completed segments)
         let context = ModelContext(modelContainer)
         let id = taskID
@@ -525,11 +556,11 @@ actor TaskCoordinator {
             let downloaded = task.downloadedBytes
             return (task.totalSize, downloaded, speed)
         }
-        
+
         let downloaded = segmentProgress.values.reduce(0) { $0 + $1.bytesDownloaded }
         return (0, downloaded, speed)
     }
-    
+
     /// Converts NetworkError to a user-friendly description.
     private func networkErrorDescription(_ error: NetworkError) -> String {
         switch error {

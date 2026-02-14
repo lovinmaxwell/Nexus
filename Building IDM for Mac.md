@@ -4,9 +4,11 @@
 
 The digital content landscape is defined by an exponential increase in file sizes and media complexity. While bandwidth availability has grown, the mechanisms for reliable, high-speed file transfer on the client side have often stagnated within standard browser implementations. Internet Download Manager (IDM) on the Windows platform has established a hegemony in this sector by offering a distinct set of capabilities: dynamic file segmentation, robust error recovery, and deep browser integration.1 However, the macOS ecosystem currently lacks a native solution that strictly replicates IDM’s aggressive acceleration logic and feature density while adhering to Apple’s modern architectural standards, such as the Apple File System (APFS) and App Sandboxing.
 
-This report serves as the foundational Product Requirements Document (PRD) and Technical Specification for **Project Nexus**, a proposed native macOS application designed to fill this market void. The objective is to engineer a "Productivity Powerhouse" 2 capable of accelerating downloads by up to 5-8 times through algorithmic optimizations.3 By analyzing the technical underpinnings of IDM—specifically its "In-Half" dynamic segmentation rule and connection reuse strategies 4—and mapping them to macOS primitives like URLSession, FileHandle (for sparse file support) 6, and Core Data 8, this document outlines a path to delivering a market-leading utility.
+This report serves as the foundational Product Requirements Document (PRD) and Technical Specification for **Project Nexus**, a proposed native macOS application designed to fill this market void. The objective is to engineer a "Productivity Powerhouse" 2 capable of accelerating downloads by up to 5-8 times through algorithmic optimizations.3 By analyzing the technical underpinnings of IDM—specifically its "In-Half" dynamic segmentation rule and connection reuse strategies 4—and mapping them to macOS primitives like URLSession, FileHandle (for sparse file support) 6, and SwiftData 8 for persistence, this document outlines a path to delivering a market-leading utility.
 
 The proposed architecture leverages the Swift programming language for type safety and performance, integrates yt-dlp for complex media extraction 9, and employs Native Messaging for secure, sandboxed browser communication.10 This report details the functional requirements, user interface specifications, and the intricate engineering logic required to replicate IDM's behavior within the constraints of the macOS Hardened Runtime.
+
+*Implementation alignment: This document has been updated to reflect the current codebase (SwiftData, NexusHost manifest name and IPC, URLSession as primary stack, Timer-based sync queues, etc.). For a requirement-by-requirement compliance checklist, see DOCUMENTATION/SpecComplianceReport.md.*
 
 ## ---
 
@@ -70,7 +72,7 @@ The following table details the mandatory functional requirements derived from t
 | **FR-01** | **Core Engine** | The system MUST support HTTP, HTTPS, FTP, and MMS protocols. | P0 | 3 |
 | **FR-02** | **Core Engine** | The system MUST implement "Dynamic File Segmentation" using the In-Half division rule to split the largest active segment when a thread becomes free. | P0 | 4 |
 | **FR-03** | **Core Engine** | The system MUST support up to 32 simultaneous connections (threads) per file download. | P0 | 1 |
-| **FR-04** | **Persistence** | The system MUST save download state (offsets, headers) to persistent storage (Core Data) every 30 seconds to enable crash recovery. | P0 | 4 |
+| **FR-04** | **Persistence** | The system MUST save download state (offsets, headers) to persistent storage at least every 30 seconds to enable crash recovery (implementation uses SwiftData with periodic save ~1 s plus throttled per-chunk saves). | P0 | 4 |
 | **FR-05** | **File System** | The system MUST utilize APFS Sparse Files to pre-allocate disk space instantly without writing zero-bytes, preserving SSD longevity and performance. | P1 | 6 |
 | **FR-06** | **Browser Int.** | The system MUST provide extensions for Safari, Chrome, and Firefox that intercept download links via Native Messaging. | P0 | 10 |
 | **FR-07** | **Browser Int.** | The extension MUST detect video streams (M3U8, MP4, FLV) and inject a "Download with Nexus" overlay button on the video player. | P1 | 3 |
@@ -92,7 +94,7 @@ The user interface design prioritizes information density and clarity, adapting 
 
 * **Main Window:**  
   * **Sidebar (Translucent Material):** Navigation categories (All Downloads, Compressed, Documents, Music, Video, Programs) and user-defined Queues.  
-  * **Main List View (NSTableView):** Columns for File Name, Size, Status (ProgressBar), Transfer Rate, Time Left, and "Resume Capability" (Yes/No).  
+  * **Main List View:** Columns for File Name, Size, Status (ProgressBar), Transfer Rate, Time Left, and "Resume Capability" (Yes/No). Implemented as a SwiftUI List with equivalent columns.  
   * **Inspector Pane (Collapsible):** Detailed visualization of the segmentation map (showing active threads filling the file), server headers, and a debug log.  
 * **Menu Bar Utility:** A lightweight NSStatusItem providing a "Mini Mode" to view active transfer speeds, pause/resume all, and add URLs from the clipboard, catering to users who prefer unobtrusive utilities.26  
 * **Dock Integration:** The Dock icon will display a badge count for active downloads and a circular progress overlay indicating global progress.
@@ -108,10 +110,10 @@ This section translates the functional requirements into a concrete engineering 
 The choice of networking stack is pivotal. Apple's URLSession is the standard, optimized for battery life and background execution.27 However, IDM's logic often requires "fighting" for bandwidth using aggressive timeouts and non-standard connection behaviors that URLSession's high-level abstraction may suppress.
 
 Strategic Decision: Hybrid Architecture  
-Project Nexus will employ a hybrid model:
+Project Nexus employs a hybrid model:
 
-1. **Standard Mode (URLSession):** Used for standard file transfers, background downloads (via URLSessionConfiguration.background), and battery-sensitive operations. This ensures compliance with macOS energy policies.  
-2. **Turbo Mode (libcurl / Swift Wrapper):** For the "32-connection" acceleration and aggressive segmentation, the application will wrap libcurl. libcurl offers granular control over TCP keep-alive, connection pooling, and protocol-level details that URLSession abstracts away. This allows the implementation of the "In-Half" segmentation logic without the system forcefully coalescing connections.29
+1. **Standard Mode (URLSession):** Used for standard file transfers, background downloads (via URLSessionConfiguration.background), and battery-sensitive operations. This ensures compliance with macOS energy policies. *Current implementation uses URLSession for all downloads, with In-Half segmentation and up to 32 connections.*  
+2. **Turbo Mode (libcurl / Swift Wrapper) [Planned]:** For optional "32-connection" acceleration with finer control over connection pooling and keep-alive, the application may wrap libcurl. See DOCUMENTATION/libcurlIntegration.md. libcurl would allow implementation of the same In-Half logic without connection coalescing.29
 
 ### **4.2 Dynamic Segmentation Algorithm Implementation**
 
@@ -137,9 +139,9 @@ To utilize this, Project Nexus will use FileHandle (part of Foundation).
 3. As network threads receive data buffers, the FileWriter actor (a thread-safe Swift Actor) seeks to the specific offset and writes the data: fileHandle.seek(toFileOffset: segmentOffset); fileHandle.write(data).  
 4. APFS automatically handles the fragmentation and mapping of these written blocks.7
 
-### **4.4 Data Persistence Schema (Core Data)**
+### **4.4 Data Persistence Schema (SwiftData)**
 
-To support the robust resume capability (FR-04), the application state must be modeled relationally. We will use **Core Data** for its speed and object graph management capabilities.8
+To support the robust resume capability (FR-04), the application state must be modeled relationally. The implementation uses **SwiftData** (ModelContainer, @Model), which provides the same schema concepts and persistence as Core Data.8
 
 **Schema Design:**
 
@@ -152,7 +154,7 @@ To support the robust resume capability (FR-04), the application state must be m
 |  | status | Int16 | Enum: 0=Paused, 1=Running, 2=Complete, 3=Error. |
 |  | eTag | String | Validator for resume integrity. |
 |  | lastModified | Date | Server timestamp for validation. |
-|  | cookies | Binary | Serialized HTTPCookieStorage for authentication. |
+|  | httpCookies | Binary | Serialized HTTPCookieStorage for authentication. |
 |  | createdDate | Date | For sorting and history. |
 | **FileSegment** | id | UUID | Unique Segment ID. |
 |  | startOffset | Int64 | The logical start byte of this segment. |
@@ -161,7 +163,7 @@ To support the robust resume capability (FR-04), the application state must be m
 |  | isComplete | Boolean | Completion flag. |
 | **Relationship** | segments | To-Many | A DownloadTask has many FileSegments. |
 
-**Resume Logic:** Upon application launch, the DownloadManager queries Core Data for tasks with status\!= Complete. It validates the FileSegment data against the file on disk. If valid, it reconstructs the in-memory TaskCoordinator and resumes threads from currentOffset.12
+**Resume Logic:** Upon application launch, the DownloadManager (via QueueManager) processes queues and starts pending tasks. When a task is started, the TaskCoordinator loads segments from the store, performs a HEAD request to validate ETag/Last-Modified/Content-Length, and resumes threads from currentOffset.12
 
 ### **4.5 Browser Integration: Native Messaging Architecture**
 
@@ -171,12 +173,12 @@ The "Click-to-Download" experience relies on tightly coupling the browser with t
 
 The Native Messaging Host is a distinct executable binary bundled inside the main application. Browsers discover it via a JSON manifest file.
 
-* **Chrome/Firefox:** The manifest is placed in \~/Library/Application Support/Google/Chrome/NativeMessagingHosts/.  
-  JSON  
+* **Chrome/Firefox:** The manifest is placed in \~/Library/Application Support/Google/Chrome/NativeMessagingHosts/ (or the equivalent for Firefox). The implementation uses the name `com.nexus.host` and app path Nexus.app (e.g. `/Applications/Nexus.app/Contents/MacOS/NexusHost`).  
+  JSON (conceptual):  
   {  
-    "name": "com.projectnexus.host",  
-    "description": "Project Nexus Downloader Integration",  
-    "path": "/Applications/ProjectNexus.app/Contents/MacOS/NexusHost",  
+    "name": "com.nexus.host",  
+    "description": "Nexus Download Manager Native Messaging Host",  
+    "path": "/Applications/Nexus.app/Contents/MacOS/NexusHost",  
     "type": "stdio",  
     "allowed\_origins": \["chrome-extension://\<extension-id\>/"\]  
   }
@@ -190,7 +192,7 @@ The communication protocol is standard across browsers:
 * **Input (Browser \-\> App):** A 32-bit unsigned integer (in native byte order) specifying the message length, followed by the JSON payload.  
   * *Payload:* { "url": "https://...", "cookies": "session=...", "referrer": "...", "userAgent": "..." }.  
 * **Output (App \-\> Browser):** A 32-bit length integer followed by a JSON response (e.g., confirmation of download start).  
-* **Swift Implementation:** The NexusHost binary will utilize FileHandle.standardInput to read the length header and payload, deserialize the JSON, and then use Inter-Process Communication (IPC)—specifically CFMessagePort or XPC—to pass the download command to the main running instance of Project Nexus.
+* **Swift Implementation:** The NexusHost binary utilizes FileHandle.standardInput to read the 32-bit length header and JSON payload, deserializes the JSON, and passes the download command to the main app via a file written to a shared Application Support directory plus DistributedNotificationCenter (com.nexus.newDownload), which the main app observes.
 
 ### **4.6 Media Intelligence: Embedding yt-dlp**
 
@@ -221,7 +223,7 @@ The QueueManager maintains a list of DownloadQueue objects. Each queue has a con
 
 ### **5.2 Synchronization and Periodic Checks**
 
-For the "Synchronization Queue" feature (FR-09), the system uses BackgroundTasks framework (BGAppRefreshTask) for power-efficient periodic checks if the app is not running, or simple Timer objects if the app is active.
+For the "Synchronization Queue" feature (FR-09), the system uses Timer-based periodic checks while the app is active (BGAppRefreshTask is not available on macOS; it is iOS-only). When the app is running, sync queues are checked at their configured intervals.
 
 * **Mechanism:** The app sends a HEAD request to the URL. It compares the Last-Modified or Content-Length header with the locally stored metadata. If different, it triggers a re-download.17
 
@@ -266,23 +268,21 @@ Unlike Windows, where IDM has broad system access, Project Nexus must operate wi
 Managing 32 threads for a single download, plus UI updates, can be CPU intensive.
 
 * **Challenge:** Frequent context switching and UI redrawing (60fps) for 32 progress bars can spike CPU usage.  
-* **Solution:** **Throttled UI Updates.** The networking threads should not update the UI directly. They should update an atomic bytesReceived counter. A separate main-thread Timer fires every 0.5 or 1.0 seconds to read this counter, calculate speed, and update the UI *once* per tick. This decoupling prevents the UI from becoming a bottleneck during high-speed transfers.
+* **Solution:** **Throttled UI Updates.** The networking threads do not update the UI directly. They update segment progress (and optionally a progress broadcaster). A main-thread Timer or push-based broadcaster updates the UI at a bounded rate (e.g. every 0.15–1.0 s). This decoupling prevents the UI from becoming a bottleneck during high-speed transfers.
 
 ### **6.3 Handling HTTP/2 and Multiplexing**
 
 IDM's "multiple connections" strategy is optimized for HTTP/1.1. HTTP/2 utilizes multiplexing over a single TCP connection, rendering multiple connections redundant or even harmful (server may flag as abuse).
 
-* **Solution:** The TaskCoordinator must perform protocol negotiation.  
-  * **If HTTP/1.1:** Launch multiple TCP connections.  
-  * **If HTTP/2:** Use a single TCP connection but utilize parallel *streams* if the library (libcurl) supports independent stream flow control, or fallback to multiple HTTP/1.1 connections if the server throttles single-stream throughput.38
+* **Solution:** The TaskCoordinator (via HTTP2Detector and NetworkHandlerFactory) performs protocol negotiation. If HTTP/2 is detected, a single connection with URLSession’s built-in multiplexing is used; if HTTP/1.1, multiple connections are used.38
 
 ## ---
 
 **7\. Conclusion**
 
-Project Nexus represents a significant engineering effort to bring enterprise-grade download management to the macOS platform. By carefully synthesizing the aggressive acceleration algorithms of IDM—specifically dynamic segmentation and connection reuse—with the modern, secure, and efficient frameworks of macOS (Swift, APFS, Core Data), this project bridges a long-standing gap in the Apple software ecosystem.
+Project Nexus represents a significant engineering effort to bring enterprise-grade download management to the macOS platform. By carefully synthesizing the aggressive acceleration algorithms of IDM—specifically dynamic segmentation and connection reuse—with the modern, secure, and efficient frameworks of macOS (Swift, APFS, SwiftData), this project bridges a long-standing gap in the Apple software ecosystem.
 
-The proposed architecture prioritizes performance through a hybrid networking stack (URLSession \+ libcurl), reliability through robust persistence and resume logic, and usability through deep browser integration via Native Messaging. While the constraints of the App Sandbox and Hardened Runtime present unique challenges, the strategies outlined in this report—specifically the use of Security-Scoped Bookmarks and bundled helper runtimes—ensure that Project Nexus will be both a powerful tool for power users and a compliant citizen of the macOS environment.
+The architecture prioritizes performance through URLSession-based downloads (with optional libcurl Turbo Mode documented for future use), reliability through robust persistence and resume logic, and usability through deep browser integration via Native Messaging. While the constraints of the App Sandbox and Hardened Runtime present unique challenges, the strategies outlined in this report—specifically the use of Security-Scoped Bookmarks and bundled helper runtimes—ensure that Project Nexus will be both a powerful tool for power users and a compliant citizen of the macOS environment.
 
 This document serves as the blueprint for development, providing the necessary specifications to move from concept to a fully realized, market-leading application.
 

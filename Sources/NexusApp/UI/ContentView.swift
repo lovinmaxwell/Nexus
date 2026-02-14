@@ -95,6 +95,7 @@ struct ContentView: View {
     @State private var showAddSheet = false
     @State private var newURLString = ""
     @State private var selectedCategory: DownloadCategory = .all
+    @State private var selectedQueueID: UUID?
     @State private var showSpeedLimitPopover = false
     @State private var customSpeedLimit: Double = 1.0
     @State private var customSpeedUnit: SpeedUnit = .mbps
@@ -102,7 +103,11 @@ struct ContentView: View {
     @State private var showSiteGrabber = false
 
     var filteredTasks: [DownloadTask] {
-        tasks.filter { selectedCategory.matches($0) }
+        tasks.filter { task in
+            let matchesCategory = selectedCategory.matches(task)
+            let matchesQueue = selectedQueueID == nil || task.queue?.id == selectedQueueID
+            return matchesCategory && matchesQueue
+        }
     }
 
     @State private var showClearConfirmation = false
@@ -113,6 +118,7 @@ struct ContentView: View {
                 Section("Categories") {
                     ForEach(DownloadCategory.allCases) { category in
                         let count = tasks.filter { category.matches($0) }.count
+                        let isSelected = selectedQueueID == nil && selectedCategory == category
                         HStack {
                             Label(category.rawValue, systemImage: category.icon)
                             Spacer()
@@ -125,20 +131,24 @@ struct ContentView: View {
                                     .clipShape(Capsule())
                             }
                         }
+                        .listRowBackground(isSelected ? Color.accentColor.opacity(0.15) : nil)
                         .contentShape(Rectangle())
                         .onTapGesture {
                             selectedCategory = category
+                            selectedQueueID = nil
                             selection = nil
                         }
                     }
                 }
-                
+
                 Section("Queues") {
                     ForEach(queues) { queue in
                         let queueTasks = tasks.filter { $0.queue?.id == queue.id }
-                        let activeCount = queueTasks.filter { $0.status == .running || $0.status == .connecting }.count
+                        let activeCount = queueTasks.filter {
+                            $0.status == .running || $0.status == .connecting
+                        }.count
                         let pendingCount = queueTasks.filter { $0.status == .pending }.count
-                        
+                        let isSelected = selectedQueueID == queue.id
                         HStack {
                             Label(queue.name, systemImage: "list.bullet.rectangle")
                             Spacer()
@@ -161,14 +171,15 @@ struct ContentView: View {
                                 .clipShape(Capsule())
                             }
                         }
+                        .listRowBackground(isSelected ? Color.accentColor.opacity(0.15) : nil)
                         .contentShape(Rectangle())
                         .onTapGesture {
-                            // Filter by queue
+                            selectedQueueID = queue.id
                             selectedCategory = .all
                             selection = nil
                         }
                     }
-                    
+
                     Button {
                         showQueueManager = true
                     } label: {
@@ -177,44 +188,75 @@ struct ContentView: View {
                 }
 
                 Section("Downloads") {
-                    ForEach(filteredTasks) { task in
-                        DownloadRowView(task: task)
-                            .tag(task.id)
-                            .contextMenu {
-                                // Native context menu
-                                if task.status == .running {
-                                    Button("Pause") {
-                                        Task {
-                                            await DownloadManager.shared.pauseDownload(taskID: task.id)
+                    if filteredTasks.isEmpty {
+                        ContentUnavailableView(
+                            selectedQueueID != nil || selectedCategory != .all
+                                ? "No matching downloads" : "No Downloads",
+                            systemImage: selectedQueueID != nil || selectedCategory != .all
+                                ? "tray" : "arrow.down.circle",
+                            description: Text(
+                                selectedQueueID != nil || selectedCategory != .all
+                                    ? "Try another category or queue, or add a new download."
+                                    : "Add a URL or drag a link here to start.")
+                        )
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                    } else {
+                        ForEach(filteredTasks) { task in
+                            DownloadRowView(task: task)
+                                .tag(task.id)
+                                .contextMenu {
+                                    if task.status == .running {
+                                        Button("Pause") {
+                                            Task {
+                                                await DownloadManager.shared.pauseDownload(
+                                                    taskID: task.id)
+                                            }
+                                        }
+                                    } else if task.status == .paused || task.status == .pending {
+                                        Button("Resume") {
+                                            Task {
+                                                await DownloadManager.shared.resumeDownload(
+                                                    taskID: task.id)
+                                            }
                                         }
                                     }
-                                } else if task.status == .paused || task.status == .pending {
-                                    Button("Resume") {
-                                        Task {
-                                            await DownloadManager.shared.resumeDownload(taskID: task.id)
+                                    if task.status == .error {
+                                        Button("Retry") {
+                                            Task {
+                                                await DownloadManager.shared.startDownload(
+                                                    taskID: task.id)
+                                            }
                                         }
                                     }
-                                }
-                                
-                                if task.status == .complete {
-                                    Button("Show in Finder") {
-                                        NSWorkspace.shared.selectFile(
-                                            task.destinationPath, inFileViewerRootedAtPath: "")
+                                    if task.status == .complete {
+                                        Button("Show in Finder") {
+                                            NSWorkspace.shared.selectFile(
+                                                task.destinationPath, inFileViewerRootedAtPath: "")
+                                        }
                                     }
-                                }
-                                
-                                Divider()
-                                
-                                Button("Delete", role: .destructive) {
-                                    Task {
-                                        await DownloadManager.shared.cancelDownload(taskID: task.id)
-                                        modelContext.delete(task)
+                                    Divider()
+                                    Button("Copy URL") {
+                                        NSPasteboard.general.clearContents()
+                                        NSPasteboard.general.setString(
+                                            task.sourceURL.absoluteString, forType: .string)
                                     }
+                                    Button("Open in Browser") {
+                                        NSWorkspace.shared.open(task.sourceURL)
+                                    }
+                                    Divider()
+                                    Button("Delete", role: .destructive) {
+                                        Task {
+                                            await DownloadManager.shared.cancelDownload(
+                                                taskID: task.id)
+                                            modelContext.delete(task)
+                                        }
+                                    }
+                                    .keyboardShortcut(.delete)
                                 }
-                                .keyboardShortcut(.delete)
-                            }
+                        }
+                        .onDelete(perform: deleteItems)
                     }
-                    .onDelete(perform: deleteItems)
                 }
             }
             .listStyle(.sidebar)
@@ -229,10 +271,11 @@ struct ContentView: View {
                     }
                     .keyboardShortcut("n", modifiers: .command)
                     .help("Add New Download (⌘N)")
-                    
+
                     Button {
                         if let selectedID = selection,
-                           let task = filteredTasks.first(where: { $0.id == selectedID }) {
+                            let task = filteredTasks.first(where: { $0.id == selectedID })
+                        {
                             Task {
                                 if task.status == .running {
                                     await DownloadManager.shared.pauseDownload(taskID: task.id)
@@ -246,7 +289,7 @@ struct ContentView: View {
                     }
                     .keyboardShortcut("p", modifiers: .command)
                     .help("Pause/Resume Download (⌘P)")
-                    
+
                     Button {
                         deleteTasks(completedOnly: true)
                     } label: {
@@ -262,7 +305,10 @@ struct ContentView: View {
                             showSpeedLimitPopover.toggle()
                         } label: {
                             HStack(spacing: 4) {
-                                Image(systemName: speedLimiter.isEnabled ? "gauge.with.dots.needle.33percent" : "gauge.with.dots.needle.100percent")
+                                Image(
+                                    systemName: speedLimiter.isEnabled
+                                        ? "gauge.with.dots.needle.33percent"
+                                        : "gauge.with.dots.needle.100percent")
                                 if speedLimiter.isEnabled {
                                     Text(speedLimiter.limitDescription)
                                         .font(.caption)
@@ -275,13 +321,38 @@ struct ContentView: View {
                                 customUnit: $customSpeedUnit
                             )
                         }
-                        .help(speedLimiter.isEnabled ? "Speed limit: \(speedLimiter.limitDescription)" : "Speed limit: Unlimited")
+                        .help(
+                            speedLimiter.isEnabled
+                                ? "Speed limit: \(speedLimiter.limitDescription)"
+                                : "Speed limit: Unlimited")
 
                         Menu {
+                            Button("Pause All") {
+                                Task {
+                                    for task in tasks
+                                    where task.status == .running || task.status == .connecting {
+                                        await DownloadManager.shared.pauseDownload(taskID: task.id)
+                                    }
+                                }
+                            }
+                            .disabled(
+                                !tasks.contains {
+                                    $0.status == .running || $0.status == .connecting
+                                })
+                            Button("Resume All") {
+                                Task {
+                                    for task in tasks
+                                    where task.status == .paused || task.status == .pending {
+                                        await DownloadManager.shared.resumeDownload(taskID: task.id)
+                                    }
+                                }
+                            }
+                            .disabled(
+                                !tasks.contains { $0.status == .paused || $0.status == .pending })
+                            Divider()
                             Button("Clear Completed") {
                                 deleteTasks(completedOnly: true)
                             }
-
                             Button("Clear All...", role: .destructive) {
                                 showClearConfirmation = true
                             }
@@ -294,7 +365,7 @@ struct ContentView: View {
                             Label("Add Download", systemImage: "plus")
                         }
                         .keyboardShortcut("n", modifiers: .command)
-                        
+
                         Button {
                             showSiteGrabber = true
                         } label: {
@@ -312,18 +383,19 @@ struct ContentView: View {
             } else {
                 ContentUnavailableView(
                     "Select a Download", systemImage: "arrow.down.circle",
-                    description: Text("Choose a download from the sidebar"))
-                    .dropDestination(for: String.self) { items, _ in
-                        let downloadsPath = SecurityScopedBookmark.getDefaultDownloadDirectoryPath()
-                        for item in items {
-                            if URL(string: item) != nil {
-                                Task {
-                                    try? await addDownload(urlString: item, path: downloadsPath)
-                                }
+                    description: Text("Choose a download from the sidebar")
+                )
+                .dropDestination(for: String.self) { items, _ in
+                    let downloadsPath = SecurityScopedBookmark.getDefaultDownloadDirectoryPath()
+                    for item in items {
+                        if URL(string: item) != nil {
+                            Task {
+                                try? await addDownload(urlString: item, path: downloadsPath)
                             }
                         }
-                        return true
                     }
+                    return true
+                }
             }
         }
         .dropDestination(for: URL.self) { urls, _ in
@@ -355,7 +427,8 @@ struct ContentView: View {
             Text(lastErrorMessage)
         }
         .sheet(isPresented: $showAddSheet) {
-            AddDownloadSheet(urlString: $newURLString, modelContext: modelContext) { urlString, path, connectionCount, queueID, startPaused, formatID in
+            AddDownloadSheet(urlString: $newURLString, modelContext: modelContext) {
+                urlString, path, connectionCount, queueID, startPaused, formatID in
                 try await addDownload(
                     urlString: urlString,
                     path: path,
@@ -389,7 +462,8 @@ struct ContentView: View {
             MenuBarManager.shared.setModelContainer(modelContext.container)
             DockManager.shared.setModelContainer(modelContext.container)
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("SelectTask"))) { notification in
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("SelectTask"))) {
+            notification in
             if let taskID = notification.object as? UUID {
                 selection = taskID
             }
@@ -409,7 +483,7 @@ struct ContentView: View {
     ) async throws {
         let extractor = MediaExtractor.shared
         let trimmedURL = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-        
+
         // For media URLs, use addMediaDownload
         if extractor.isMediaURL(trimmedURL) {
             _ = try await DownloadManager.shared.addMediaDownload(
@@ -422,18 +496,25 @@ struct ContentView: View {
             guard let url = URL(string: trimmedURL) else {
                 lastErrorMessage = "Invalid URL"
                 showErrorAlert = true
-                throw NSError(domain: "Nexus", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"])
+                throw NSError(
+                    domain: "Nexus", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"])
             }
-            
+
             DownloadManager.shared.maxConnectionsPerDownload = connectionCount
-            
+
             let taskID = await DownloadManager.shared.addDownload(
                 url: url, destinationPath: path, connectionCount: connectionCount,
                 queueID: queueID, startPaused: startPaused, requireExtension: true)
             if taskID == nil {
-                lastErrorMessage = "URL must have a file extension. Browser downloads will automatically detect the extension."
+                lastErrorMessage =
+                    "URL must have a file extension. Browser downloads will automatically detect the extension."
                 showErrorAlert = true
-                throw NSError(domain: "Nexus", code: -1, userInfo: [NSLocalizedDescriptionKey: "URL must have a file extension. Browser downloads will automatically detect the extension."])
+                throw NSError(
+                    domain: "Nexus", code: -1,
+                    userInfo: [
+                        NSLocalizedDescriptionKey:
+                            "URL must have a file extension. Browser downloads will automatically detect the extension."
+                    ])
             }
         }
     }
@@ -474,7 +555,7 @@ struct DownloadRowView: View {
     @State private var currentSpeed: Double = 0
     @State private var timeRemaining: TimeInterval? = nil
     private let broadcaster = DownloadProgressBroadcaster.shared
-    
+
     // Real-time UI: observe broadcaster (pushes ~5x/sec) + fallback timer for model-driven updates
     let timer = Timer.publish(every: 0.15, on: .main, in: .common).autoconnect()
 
@@ -489,7 +570,7 @@ struct DownloadRowView: View {
                 Text(statusText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                
+
                 if (task.status == .running || task.status == .connecting) && currentSpeed > 0 {
                     Text(formatSpeed(currentSpeed))
                         .font(.caption)
@@ -497,18 +578,23 @@ struct DownloadRowView: View {
                 }
 
                 Spacer()
-                
-                if (task.status == .running || task.status == .connecting), let remaining = timeRemaining {
+
+                if task.status == .running || task.status == .connecting,
+                    let remaining = timeRemaining
+                {
                     Text(formatTimeRemaining(remaining))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                
+
                 // Resume capability indicator
                 if task.status == .paused || task.status == .pending {
                     HStack(spacing: 2) {
-                        Image(systemName: task.supportsResume ? "arrow.clockwise.circle.fill" : "xmark.circle.fill")
-                            .font(.caption2)
+                        Image(
+                            systemName: task.supportsResume
+                                ? "arrow.clockwise.circle.fill" : "xmark.circle.fill"
+                        )
+                        .font(.caption2)
                         Text(task.supportsResume ? "Yes" : "No")
                             .font(.caption2)
                     }
@@ -544,7 +630,7 @@ struct DownloadRowView: View {
             updateProgress()
         }
     }
-    
+
     /// Progress from broadcaster (real-time) or task segments (fallback).
     private var displayProgress: Double {
         if let snapshot = broadcaster.snapshot(for: task.id), snapshot.totalBytes > 0 {
@@ -552,7 +638,7 @@ struct DownloadRowView: View {
         }
         return progress
     }
-    
+
     private func updateProgress() {
         // Prefer broadcaster for instant UX; fallback to async getProgress
         if task.status == .running {
@@ -632,14 +718,14 @@ struct DownloadRowView: View {
         formatter.countStyle = .file
         return formatter.string(fromByteCount: bytes)
     }
-    
+
     private func formatSpeed(_ bytesPerSecond: Double) -> String {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
         formatter.includesUnit = true
         return formatter.string(fromByteCount: Int64(bytesPerSecond)) + "/s"
     }
-    
+
     private func formatTimeRemaining(_ seconds: TimeInterval) -> String {
         if seconds < 60 {
             return String(format: "%.0fs", seconds)
@@ -659,8 +745,23 @@ struct TaskDetailView: View {
     @Bindable var task: DownloadTask
     @Environment(\.modelContext) var modelContext
     @State private var isInspectorExpanded = false
-    @State private var serverHeaders: [String: String] = [:]
-    @State private var debugLog: [String] = []
+
+    // Computed properties replace @State for reactivity
+    private var debugLog: [String] {
+        var log: [String] = []
+        log.append("Task ID: \(task.id)")
+        log.append("Status: \(statusText)")
+        log.append("Segments: \(task.segments.count)")
+        log.append("Downloaded: \(formatBytes(task.downloadedBytes))")
+        if task.totalSize > 0 {
+            log.append(
+                "Progress: \(Int((Double(task.downloadedBytes) / Double(task.totalSize)) * 100))%")
+        }
+        if let error = task.errorMessage {
+            log.append("Error: \(error)")
+        }
+        return log
+    }
 
     var body: some View {
         ScrollView {
@@ -680,23 +781,23 @@ struct TaskDetailView: View {
                 }
 
                 GroupBox("Segments (\(task.segments.count))") {
-                    SegmentVisualizationView(segments: task.segments, totalSize: task.totalSize)
+                    SegmentVisualizationView(task: task)
                         .frame(height: 40)
 
                     ForEach(task.segments) { segment in
                         SegmentRowView(segment: segment, totalSize: task.totalSize)
                     }
                 }
-                
+
                 // Collapsible Inspector Panel
                 DisclosureGroup("Inspector", isExpanded: $isInspectorExpanded) {
                     VStack(alignment: .leading, spacing: 16) {
                         // Detailed Segmentation Map
                         GroupBox("Segmentation Map") {
-                            DetailedSegmentationMapView(segments: task.segments, totalSize: task.totalSize)
+                            DetailedSegmentationMapView(task: task)
                                 .frame(height: 60)
                         }
-                        
+
                         // Server Headers
                         GroupBox("Server Headers") {
                             if serverHeaders.isEmpty {
@@ -716,7 +817,7 @@ struct TaskDetailView: View {
                                 }
                             }
                         }
-                        
+
                         // Connection Status per Segment
                         GroupBox("Connection Status") {
                             ForEach(task.segments) { segment in
@@ -726,19 +827,33 @@ struct TaskDetailView: View {
                                     Spacer()
                                     HStack(spacing: 4) {
                                         Circle()
-                                            .fill(segment.isComplete ? .green : (task.status == .running || task.status == .connecting ? .blue : .gray))
+                                            .fill(
+                                                segment.isComplete
+                                                    ? .green
+                                                    : (task.status == .running
+                                                        || task.status == .connecting
+                                                        ? .blue : .gray)
+                                            )
                                             .frame(width: 8, height: 8)
-                                        Text(segment.isComplete ? "Complete" : (task.status == .running || task.status == .connecting ? "Active" : "Pending"))
-                                            .font(.caption2)
+                                        Text(
+                                            segment.isComplete
+                                                ? "Complete"
+                                                : (task.status == .running
+                                                    || task.status == .connecting
+                                                    ? "Active" : "Pending")
+                                        )
+                                        .font(.caption2)
                                     }
                                     Spacer()
-                                    Text("\(formatBytes(segment.currentOffset - segment.startOffset)) / \(formatBytes(segment.endOffset - segment.startOffset + 1))")
-                                        .font(.caption2.monospaced())
-                                        .foregroundStyle(.secondary)
+                                    Text(
+                                        "\(formatBytes(segment.currentOffset - segment.startOffset)) / \(formatBytes(segment.endOffset - segment.startOffset + 1))"
+                                    )
+                                    .font(.caption2.monospaced())
+                                    .foregroundStyle(.secondary)
                                 }
                             }
                         }
-                        
+
                         // Debug Log
                         GroupBox("Debug Log") {
                             ScrollView {
@@ -758,7 +873,7 @@ struct TaskDetailView: View {
 
                 HStack(spacing: 12) {
                     if task.status == .paused || task.status == .error || task.status == .pending {
-                        Button("Start") {
+                        Button(task.status == .error ? "Retry" : "Start") {
                             Task {
                                 await DownloadManager.shared.startDownload(taskID: task.id)
                             }
@@ -775,7 +890,7 @@ struct TaskDetailView: View {
                         }
                         .buttonStyle(.bordered)
                     }
-                    
+
                     if task.status == .extracting {
                         ProgressView()
                             .controlSize(.small)
@@ -791,21 +906,28 @@ struct TaskDetailView: View {
                         }
                         .buttonStyle(.bordered)
                     }
+
+                    Divider()
+                        .frame(height: 20)
+
+                    Button("Copy URL") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(
+                            task.sourceURL.absoluteString, forType: .string)
+                    }
+                    .buttonStyle(.bordered)
+                    Button("Open in Browser") {
+                        NSWorkspace.shared.open(task.sourceURL)
+                    }
+                    .buttonStyle(.bordered)
                 }
             }
             .padding()
         }
         .navigationTitle(task.sourceURL.lastPathComponent)
-        .onAppear {
-            loadServerHeaders()
-            loadDebugLog()
-        }
-        .onChange(of: task.status) { _, _ in
-            loadServerHeaders()
-        }
     }
-    
-    private func loadServerHeaders() {
+
+    private var serverHeaders: [String: String] {
         var headers: [String: String] = [:]
         if let eTag = task.eTag {
             headers["ETag"] = eTag
@@ -817,22 +939,7 @@ struct TaskDetailView: View {
             headers["Content-Length"] = "\(task.totalSize)"
         }
         headers["Resume Capable"] = task.supportsResume ? "Yes" : "No"
-        serverHeaders = headers
-    }
-    
-    private func loadDebugLog() {
-        var log: [String] = []
-        log.append("Task ID: \(task.id)")
-        log.append("Status: \(statusText)")
-        log.append("Segments: \(task.segments.count)")
-        log.append("Downloaded: \(formatBytes(task.downloadedBytes))")
-        if task.totalSize > 0 {
-            log.append("Progress: \(Int((Double(task.downloadedBytes) / Double(task.totalSize)) * 100))%")
-        }
-        if let error = task.errorMessage {
-            log.append("Error: \(error)")
-        }
-        debugLog = log
+        return headers
     }
 
     private var statusText: String {
@@ -855,11 +962,12 @@ struct TaskDetailView: View {
 }
 
 struct SegmentVisualizationView: View {
-    let segments: [FileSegment]
-    let totalSize: Int64
+    let task: DownloadTask
 
     var body: some View {
-        GeometryReader { geometry in
+        let segments = task.segments
+        let totalSize = task.totalSize
+        return GeometryReader { geometry in
             ZStack(alignment: .leading) {
                 RoundedRectangle(cornerRadius: 4)
                     .fill(Color.gray.opacity(0.2))
@@ -979,28 +1087,30 @@ struct AddDownloadSheet: View {
                         .pickerStyle(.menu)
                         Spacer()
                     }
-                    
+
                     HStack {
                         Button(availableFormats.isEmpty ? "Load Formats" : "Refresh Formats") {
                             loadFormats()
                         }
                         .disabled(isLoadingFormats)
-                        
+
                         if isLoadingFormats {
                             ProgressView()
                                 .controlSize(.small)
                         }
                         Spacer()
                     }
-                    
+
                     if let error = formatError {
                         Text(error)
                             .font(.caption)
                             .foregroundStyle(.red)
                     } else if availableFormats.isEmpty {
-                        Text("Uses best available format. Load formats to choose a specific resolution.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        Text(
+                            "Uses best available format. Load formats to choose a specific resolution."
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -1013,7 +1123,7 @@ struct AddDownloadSheet: View {
                     chooseDestination()
                 }
             }
-            
+
             // Connection count selector
             HStack {
                 Text("Connections:")
@@ -1024,7 +1134,7 @@ struct AddDownloadSheet: View {
                 }
                 Spacer()
             }
-            
+
             // Queue assignment dropdown
             HStack {
                 Text("Queue:")
@@ -1038,7 +1148,7 @@ struct AddDownloadSheet: View {
                 .pickerStyle(.menu)
                 Spacer()
             }
-            
+
             // Start paused option
             Toggle("Start paused", isOn: $startPaused)
 
@@ -1093,11 +1203,13 @@ struct AddDownloadSheet: View {
         isAdding = true
         errorMessage = nil
         addPhaseMessage = isMediaURL ? "Extracting media info..." : "Resolving URL..."
-        
+
         Task {
             do {
                 let formatID = isMediaURL ? selectedFormatID : nil
-                try await onAdd(urlString, destinationPath, connectionCount, selectedQueueID, startPaused, formatID)
+                try await onAdd(
+                    urlString, destinationPath, connectionCount, selectedQueueID, startPaused,
+                    formatID)
                 await MainActor.run {
                     urlString = ""
                     destinationPath = ""
@@ -1142,27 +1254,31 @@ struct AddDownloadSheet: View {
         let requestedURL = trimmed
         isLoadingFormats = true
         formatError = nil
-        
+
         Task {
             do {
                 let parsedURL = URL(string: trimmed)
-                let cookieFileURL = parsedURL.flatMap { try? NetscapeCookieWriter.writeCookies(for: $0) }
+                let cookieFileURL = parsedURL.flatMap {
+                    try? NetscapeCookieWriter.writeCookies(for: $0)
+                }
                 defer { NetscapeCookieWriter.cleanup(cookieFileURL) }
-                
+
                 let formats = try await MediaExtractor.shared.listFormats(
                     from: trimmed,
                     cookiesFileURL: cookieFileURL
                 )
                 let sortedFormats = formats.sorted { formatSortKey($0) > formatSortKey($1) }
-                
+
                 await MainActor.run {
-                    guard urlString.trimmingCharacters(in: .whitespacesAndNewlines) == requestedURL else {
+                    guard urlString.trimmingCharacters(in: .whitespacesAndNewlines) == requestedURL
+                    else {
                         isLoadingFormats = false
                         return
                     }
                     availableFormats = sortedFormats
                     if selectedFormatID != "best",
-                       !sortedFormats.contains(where: { $0.id == selectedFormatID }) {
+                        !sortedFormats.contains(where: { $0.id == selectedFormatID })
+                    {
                         selectedFormatID = "best"
                     }
                     isLoadingFormats = false
@@ -1176,13 +1292,13 @@ struct AddDownloadSheet: View {
             }
         }
     }
-    
+
     private func formatHeight(_ resolution: String?) -> Int {
         guard let resolution else { return 0 }
         let digits = resolution.filter { $0.isNumber }
         return Int(digits) ?? 0
     }
-    
+
     private func formatSortKey(_ format: MediaExtractor.MediaFormat) -> Int {
         let height = formatHeight(format.resolution)
         let typeBoost = format.isAudioOnly ? -1000 : 0
@@ -1211,9 +1327,12 @@ struct SpeedLimitPopoverView: View {
                 Circle()
                     .fill(speedLimiter.isEnabled ? Color.orange : Color.green)
                     .frame(width: 8, height: 8)
-                Text(speedLimiter.isEnabled ? "Limited to \(speedLimiter.limitDescription)" : "Unlimited")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                Text(
+                    speedLimiter.isEnabled
+                        ? "Limited to \(speedLimiter.limitDescription)" : "Unlimited"
+                )
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
             }
 
             Divider()
@@ -1290,4 +1409,3 @@ struct SpeedLimitPopoverView: View {
         }
     }
 }
-
