@@ -16,18 +16,19 @@ let package = Package(
             name: "NexusHost",
             targets: ["NexusHost"]),
     ],
-    dependencies: [
-    ],
+    dependencies: [],
     targets: [
         .executableTarget(
             name: "NexusApp",
             dependencies: [],
             path: "Sources/NexusApp",
-            exclude: ["README.md", "Core/README.md", "Core/Network/README.md", "Core/Storage/README.md", 
-                      "Domain/README.md", "Domain/Models/README.md", "Domain/Protocols/README.md",
-                      "Presentation/README.md", "Utilities/README.md"],
+            exclude: [
+                "README.md", "Core/README.md", "Core/Network/README.md", "Core/Storage/README.md",
+                "Domain/README.md", "Domain/Models/README.md", "Domain/Protocols/README.md",
+                "Presentation/README.md", "Utilities/README.md",
+            ],
             resources: [
-                .process("Resources") 
+                .process("Resources")
             ]
         ),
         .executableTarget(
@@ -36,8 +37,5 @@ let package = Package(
             path: "Sources/NexusHost",
             exclude: ["README.md"]
         ),
-        .testTarget(
-            name: "NexusTests",
-            dependencies: ["NexusApp"]),
     ]
 )

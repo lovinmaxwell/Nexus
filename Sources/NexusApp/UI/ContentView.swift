@@ -744,24 +744,8 @@ struct DownloadRowView: View {
 struct TaskDetailView: View {
     @Bindable var task: DownloadTask
     @Environment(\.modelContext) var modelContext
-    @State private var isInspectorExpanded = false
 
     // Computed properties replace @State for reactivity
-    private var debugLog: [String] {
-        var log: [String] = []
-        log.append("Task ID: \(task.id)")
-        log.append("Status: \(statusText)")
-        log.append("Segments: \(task.segments.count)")
-        log.append("Downloaded: \(formatBytes(task.downloadedBytes))")
-        if task.totalSize > 0 {
-            log.append(
-                "Progress: \(Int((Double(task.downloadedBytes) / Double(task.totalSize)) * 100))%")
-        }
-        if let error = task.errorMessage {
-            log.append("Error: \(error)")
-        }
-        return log
-    }
 
     var body: some View {
         ScrollView {
@@ -787,88 +771,6 @@ struct TaskDetailView: View {
                     ForEach(task.segments) { segment in
                         SegmentRowView(segment: segment, totalSize: task.totalSize)
                     }
-                }
-
-                // Collapsible Inspector Panel
-                DisclosureGroup("Inspector", isExpanded: $isInspectorExpanded) {
-                    VStack(alignment: .leading, spacing: 16) {
-                        // Detailed Segmentation Map
-                        GroupBox("Segmentation Map") {
-                            DetailedSegmentationMapView(task: task)
-                                .frame(height: 60)
-                        }
-
-                        // Server Headers
-                        GroupBox("Server Headers") {
-                            if serverHeaders.isEmpty {
-                                Text("No headers available")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            } else {
-                                ForEach(Array(serverHeaders.keys.sorted()), id: \.self) { key in
-                                    HStack {
-                                        Text(key)
-                                            .font(.caption.monospaced())
-                                            .foregroundStyle(.secondary)
-                                        Spacer()
-                                        Text(serverHeaders[key] ?? "")
-                                            .font(.caption)
-                                    }
-                                }
-                            }
-                        }
-
-                        // Connection Status per Segment
-                        GroupBox("Connection Status") {
-                            ForEach(task.segments) { segment in
-                                HStack {
-                                    Text("Segment \(segment.id.uuidString.prefix(8))")
-                                        .font(.caption.monospaced())
-                                    Spacer()
-                                    HStack(spacing: 4) {
-                                        Circle()
-                                            .fill(
-                                                segment.isComplete
-                                                    ? .green
-                                                    : (task.status == .running
-                                                        || task.status == .connecting
-                                                        ? .blue : .gray)
-                                            )
-                                            .frame(width: 8, height: 8)
-                                        Text(
-                                            segment.isComplete
-                                                ? "Complete"
-                                                : (task.status == .running
-                                                    || task.status == .connecting
-                                                    ? "Active" : "Pending")
-                                        )
-                                        .font(.caption2)
-                                    }
-                                    Spacer()
-                                    Text(
-                                        "\(formatBytes(segment.currentOffset - segment.startOffset)) / \(formatBytes(segment.endOffset - segment.startOffset + 1))"
-                                    )
-                                    .font(.caption2.monospaced())
-                                    .foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-
-                        // Debug Log
-                        GroupBox("Debug Log") {
-                            ScrollView {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    ForEach(debugLog, id: \.self) { logEntry in
-                                        Text(logEntry)
-                                            .font(.system(.caption, design: .monospaced))
-                                            .textSelection(.enabled)
-                                    }
-                                }
-                            }
-                            .frame(height: 100)
-                        }
-                    }
-                    .padding(.vertical, 8)
                 }
 
                 HStack(spacing: 12) {
@@ -925,21 +827,6 @@ struct TaskDetailView: View {
             .padding()
         }
         .navigationTitle(task.sourceURL.lastPathComponent)
-    }
-
-    private var serverHeaders: [String: String] {
-        var headers: [String: String] = [:]
-        if let eTag = task.eTag {
-            headers["ETag"] = eTag
-        }
-        if let lastModified = task.lastModified {
-            headers["Last-Modified"] = lastModified.formatted()
-        }
-        if task.totalSize > 0 {
-            headers["Content-Length"] = "\(task.totalSize)"
-        }
-        headers["Resume Capable"] = task.supportsResume ? "Yes" : "No"
-        return headers
     }
 
     private var statusText: String {
