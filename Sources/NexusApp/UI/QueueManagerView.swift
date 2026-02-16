@@ -7,18 +7,25 @@ struct QueueManagerView: View {
     @Environment(\.dismiss) var dismiss
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \DownloadQueue.name) private var queues: [DownloadQueue]
-    
+
     @State private var newQueueName = ""
     @State private var newQueueMaxConcurrent = 3
     @State private var showCreateQueue = false
-    
+
     var body: some View {
         NavigationStack {
-            List {
-                ForEach(queues) { queue in
-                    QueueRowView(queue: queue)
+            ZStack {
+                AppColors.background.ignoresSafeArea()
+
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        ForEach(queues) { queue in
+                            QueueRowView(queue: queue)
+                        }
+                        .onDelete(perform: deleteQueues)
+                    }
+                    .padding()
                 }
-                .onDelete(perform: deleteQueues)
             }
             .navigationTitle("Queues")
             .toolbar {
@@ -38,15 +45,16 @@ struct QueueManagerView: View {
             .sheet(isPresented: $showCreateQueue) {
                 CreateQueueSheet(
                     queueName: $newQueueName,
-                    maxConcurrent: $newQueueMaxConcurrent
-                ) { name, maxConcurrent in
-                    createQueue(name: name, maxConcurrent: maxConcurrent)
-                }
+                    maxConcurrent: $newQueueMaxConcurrent,
+                    onCreate: { name, maxConcurrent in
+                        createQueue(name: name, maxConcurrent: maxConcurrent)
+                    }
+                )
             }
         }
         .frame(width: 500, height: 400)
     }
-    
+
     private func createQueue(name: String, maxConcurrent: Int) {
         let queue = DownloadQueue(name: name, maxConcurrentDownloads: maxConcurrent)
         modelContext.insert(queue)
@@ -55,7 +63,7 @@ struct QueueManagerView: View {
         newQueueMaxConcurrent = 3
         showCreateQueue = false
     }
-    
+
     private func deleteQueues(offsets: IndexSet) {
         withAnimation {
             for index in offsets {
@@ -70,62 +78,63 @@ struct QueueRowView: View {
     @Bindable var queue: DownloadQueue
     @Environment(\.modelContext) private var modelContext
     @Query private var allTasks: [DownloadTask]
-    
+
     var queueTasks: [DownloadTask] {
         allTasks.filter { $0.queue?.id == queue.id }
     }
-    
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(queue.name)
-                    .font(.headline)
-                Spacer()
-                if queue.isActive {
-                    Label("Active", systemImage: "checkmark.circle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.green)
-                } else {
-                    Label("Inactive", systemImage: "pause.circle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
-            }
-            
-            HStack {
-                Label("\(queue.maxConcurrentDownloads) concurrent", systemImage: "arrow.triangle.2.circlepath")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                
-                Spacer()
-                
-                Label("\(queueTasks.count) tasks", systemImage: "list.bullet")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            
-            if queue.isSynchronizationQueue {
+        GlassCard(cornerRadius: 12, padding: 12) {
+            VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Label("Sync Queue", systemImage: "arrow.clockwise")
-                        .font(.caption)
-                        .foregroundStyle(.blue)
-                    Text("Checks every \(formatInterval(queue.checkInterval))")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                    Text(queue.name)
+                        .appHeadlineStyle()
+                    Spacer()
+                    if queue.isActive {
+                        Label("Active", systemImage: "checkmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(AppColors.success)
+                    } else {
+                        Label("Inactive", systemImage: "pause.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(AppColors.warning)
+                    }
                 }
-            }
-            
-            if queue.postProcessAction != .none {
+
                 HStack {
-                    Label("Post-process: \(postProcessActionName)", systemImage: "gearshape")
-                        .font(.caption)
-                        .foregroundStyle(.purple)
+                    Label(
+                        "\(queue.maxConcurrentDownloads) concurrent",
+                        systemImage: "arrow.triangle.2.circlepath"
+                    )
+                    .appCaptionStyle()
+
+                    Spacer()
+
+                    Label("\(queueTasks.count) tasks", systemImage: "list.bullet")
+                        .appCaptionStyle()
+                }
+
+                if queue.isSynchronizationQueue {
+                    HStack {
+                        Label("Sync Queue", systemImage: "arrow.clockwise")
+                            .font(.caption)
+                            .foregroundStyle(AppColors.info)
+                        Text("Checks every \(formatInterval(queue.checkInterval))")
+                            .appCaptionStyle()
+                    }
+                }
+
+                if queue.postProcessAction != .none {
+                    HStack {
+                        Label("Post-process: \(postProcessActionName)", systemImage: "gearshape")
+                            .font(.caption)
+                            .foregroundStyle(.purple)
+                    }
                 }
             }
         }
-        .padding(.vertical, 4)
     }
-    
+
     private var postProcessActionName: String {
         switch queue.postProcessAction {
         case .none: return "None"
@@ -135,7 +144,7 @@ struct QueueRowView: View {
         case .sendNotification: return "Notification"
         }
     }
-    
+
     private func formatInterval(_ seconds: TimeInterval) -> String {
         if seconds < 60 {
             return "\(Int(seconds))s"
@@ -155,17 +164,17 @@ struct CreateQueueSheet: View {
     @State private var checkInterval: TimeInterval = 3600
     @State private var postProcessAction: PostProcessAction = .none
     @State private var scriptPath: String = ""
-    
+
     let onCreate: (String, Int) -> Void
-    
+
     var body: some View {
         VStack(spacing: 16) {
             Text("Create Queue")
                 .font(.headline)
-            
+
             TextField("Queue Name", text: $queueName)
                 .textFieldStyle(.roundedBorder)
-            
+
             HStack {
                 Text("Max Concurrent:")
                     .frame(width: 120, alignment: .trailing)
@@ -175,9 +184,9 @@ struct CreateQueueSheet: View {
                 }
                 Spacer()
             }
-            
+
             Toggle("Synchronization Queue", isOn: $isSynchronizationQueue)
-            
+
             if isSynchronizationQueue {
                 HStack {
                     Text("Check Interval:")
@@ -193,7 +202,7 @@ struct CreateQueueSheet: View {
                     Spacer()
                 }
             }
-            
+
             HStack {
                 Text("Post-Process:")
                     .frame(width: 120, alignment: .trailing)
@@ -206,7 +215,7 @@ struct CreateQueueSheet: View {
                 }
                 Spacer()
             }
-            
+
             if postProcessAction == .runScript {
                 HStack {
                     TextField("Script Path", text: $scriptPath)
@@ -216,15 +225,15 @@ struct CreateQueueSheet: View {
                     }
                 }
             }
-            
+
             HStack {
                 Button("Cancel") {
                     dismiss()
                 }
                 .keyboardShortcut(.escape)
-                
+
                 Spacer()
-                
+
                 Button("Create") {
                     createQueue()
                 }
@@ -236,7 +245,7 @@ struct CreateQueueSheet: View {
         .padding()
         .frame(width: 400)
     }
-    
+
     private func createQueue() {
         let queue = DownloadQueue(
             name: queueName,
@@ -245,15 +254,15 @@ struct CreateQueueSheet: View {
             checkInterval: checkInterval,
             postProcessAction: postProcessAction
         )
-        
+
         if postProcessAction == .runScript && !scriptPath.isEmpty {
             queue.postProcessScriptPath = scriptPath
         }
-        
+
         // Insert and save will be handled by the parent view
         onCreate(queueName, maxConcurrent)
     }
-    
+
     private func chooseScript() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = false

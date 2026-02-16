@@ -18,7 +18,8 @@ struct DetailedSegmentationMapView: View {
                 // Draw each segment with animated progress
                 ForEach(segments) { segment in
                     let startRatio =
-                        totalSize > 0 ? CGFloat(segment.startOffset) / CGFloat(totalSize) : 0
+                        totalSize > totalSize
+                        ? CGFloat(segment.startOffset) / CGFloat(totalSize) : 0
                     let segmentWidth =
                         totalSize > 0
                         ? CGFloat(segment.endOffset - segment.startOffset + 1) / CGFloat(totalSize)
@@ -31,7 +32,8 @@ struct DetailedSegmentationMapView: View {
                     // Segment background
                     RoundedRectangle(cornerRadius: 2)
                         .fill(
-                            segment.isComplete ? Color.green.opacity(0.3) : Color.blue.opacity(0.3)
+                            segment.isComplete
+                                ? AppColors.success.opacity(0.3) : AppColors.accent.opacity(0.3)
                         )
                         .frame(width: max(2, geometry.size.width * segmentWidth))
                         .offset(x: geometry.size.width * startRatio)
@@ -39,7 +41,7 @@ struct DetailedSegmentationMapView: View {
                     // Progress within segment - animated for fluid UX
                     if progressRatio > 0 {
                         RoundedRectangle(cornerRadius: 2)
-                            .fill(segment.isComplete ? Color.green : Color.blue)
+                            .fill(segment.isComplete ? AppColors.success : AppColors.accent)
                             .frame(width: max(2, geometry.size.width * progressRatio))
                             .offset(x: geometry.size.width * startRatio)
                             .animation(.easeOut(duration: 0.12), value: progressRatio)

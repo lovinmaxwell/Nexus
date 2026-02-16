@@ -8,121 +8,147 @@ struct SiteGrabberView: View {
     @State private var startURL: String = ""
     @State private var depth: Int = 1
     @State private var domainRestricted: Bool = true
-    @State private var selectedAssetTypes: Set<SiteGrabber.AssetType> = [.image, .document, .audio, .video]
+    @State private var selectedAssetTypes: Set<SiteGrabber.AssetType> = [
+        .image, .document, .audio, .video,
+    ]
     @State private var isGrabbing: Bool = false
     @State private var grabbedAssets: [SiteGrabber.GrabbedAsset] = []
     @State private var errorMessage: String?
-    
+
     var body: some View {
-        VStack(spacing: 20) {
-            Text("Site Grabber")
-                .font(.headline)
-            
-            TextField("Starting URL", text: $startURL)
-                .textFieldStyle(.roundedBorder)
-            
-            HStack {
-                Text("Depth:")
-                    .frame(width: 120, alignment: .trailing)
-                Stepper(value: $depth, in: 1...5) {
-                    Text("\(depth)")
-                        .frame(width: 40)
-                }
-                Spacer()
-            }
-            
-            Toggle("Restrict to same domain", isOn: $domainRestricted)
-            
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Asset Types:")
-                    .font(.subheadline)
-                
-                ForEach([SiteGrabber.AssetType.image, .document, .audio, .video], id: \.self) { type in
-                    Toggle(typeName(type), isOn: Binding(
-                        get: { selectedAssetTypes.contains(type) },
-                        set: { isOn in
-                            if isOn {
-                                selectedAssetTypes.insert(type)
-                            } else {
-                                selectedAssetTypes.remove(type)
+        ZStack {
+            AppColors.background.ignoresSafeArea()
+
+            VStack(spacing: 20) {
+                Text("Site Grabber")
+                    .appTitleStyle()
+
+                GlassCard(cornerRadius: 12, padding: 16) {
+                    VStack(spacing: 16) {
+                        TextField("Starting URL", text: $startURL)
+                            .textFieldStyle(.roundedBorder)
+
+                        HStack {
+                            Text("Depth:")
+                                .appBodyStyle()
+                                .frame(width: 80, alignment: .trailing)
+                            Stepper(value: $depth, in: 1...5) {
+                                Text("\(depth)")
+                                    .appBodyStyle()
+                                    .frame(width: 40)
                             }
+                            Spacer()
                         }
-                    ))
+
+                        Toggle("Restrict to same domain", isOn: $domainRestricted)
+                            .toggleStyle(.switch)
+                    }
                 }
-            }
-            
-            if isGrabbing {
-                ProgressView("Grabbing assets...")
-                Text("Found \(grabbedAssets.count) assets")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            
-            if !grabbedAssets.isEmpty {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 4) {
-                        ForEach(grabbedAssets) { asset in
-                            HStack {
-                                Image(systemName: iconForType(asset.type))
-                                    .foregroundStyle(colorForType(asset.type))
-                                Text(asset.url.lastPathComponent)
-                                    .font(.caption)
-                                    .lineLimit(1)
-                                Spacer()
-                            }
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color.secondary.opacity(0.1))
-                            .cornerRadius(4)
+
+                GlassCard(cornerRadius: 12, padding: 16) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Asset Types:")
+                            .appHeadlineStyle()
+
+                        ForEach(
+                            [SiteGrabber.AssetType.image, .document, .audio, .video], id: \.self
+                        ) { type in
+                            Toggle(
+                                typeName(type),
+                                isOn: Binding(
+                                    get: { selectedAssetTypes.contains(type) },
+                                    set: { isOn in
+                                        if isOn {
+                                            selectedAssetTypes.insert(type)
+                                        } else {
+                                            selectedAssetTypes.remove(type)
+                                        }
+                                    }
+                                )
+                            )
+                            .toggleStyle(.checkbox)
                         }
                     }
                 }
-                .frame(maxHeight: 200)
-            }
-            
-            if let error = errorMessage {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-            }
-            
-            HStack {
-                Button("Cancel") {
-                    dismiss()
+
+                if isGrabbing {
+                    VStack {
+                        ProgressView()
+                            .tint(AppColors.accent)
+                        Text("Grabbing assets...")
+                            .appBodyStyle()
+                        Text("Found \(grabbedAssets.count) assets")
+                            .appCaptionStyle()
+                    }
                 }
-                .keyboardShortcut(.escape)
-                
-                Spacer()
-                
+
                 if !grabbedAssets.isEmpty {
-                    Button("Download All (\(grabbedAssets.count))") {
-                        downloadAllAssets()
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 4) {
+                            ForEach(grabbedAssets) { asset in
+                                GlassCard(cornerRadius: 8, padding: 8) {
+                                    HStack {
+                                        Image(systemName: iconForType(asset.type))
+                                            .foregroundStyle(colorForType(asset.type))
+                                        Text(asset.url.lastPathComponent)
+                                            .appCaptionStyle()
+                                            .lineLimit(1)
+                                        Spacer()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 200)
+                }
+
+                if let error = errorMessage {
+                    Text(error)
+                        .appCaptionStyle()
+                        .foregroundStyle(AppColors.error)
+                }
+
+                HStack {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    .keyboardShortcut(.escape)
+                    .buttonStyle(.bordered)
+
+                    Spacer()
+
+                    if !grabbedAssets.isEmpty {
+                        Button("Download All (\(grabbedAssets.count))") {
+                            downloadAllAssets()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(AppColors.accent)
+                    }
+
+                    Button("Grab") {
+                        grabAssets()
                     }
                     .buttonStyle(.borderedProminent)
+                    .tint(AppColors.accent)
+                    .disabled(startURL.isEmpty || isGrabbing)
+                    .keyboardShortcut(.return)
                 }
-                
-                Button("Grab") {
-                    grabAssets()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(startURL.isEmpty || isGrabbing)
-                .keyboardShortcut(.return)
             }
+            .padding()
         }
-        .padding()
-        .frame(width: 500, height: 600)
+        .frame(width: 500, height: 700)
     }
-    
+
     private func grabAssets() {
         guard let url = URL(string: startURL) else {
             errorMessage = "Invalid URL"
             return
         }
-        
+
         isGrabbing = true
         errorMessage = nil
         grabbedAssets = []
-        
+
         Task {
             do {
                 let assets = try await SiteGrabber.shared.grab(
@@ -131,7 +157,7 @@ struct SiteGrabberView: View {
                     allowedTypes: selectedAssetTypes,
                     domainRestricted: domainRestricted
                 )
-                
+
                 await MainActor.run {
                     grabbedAssets = Array(assets)
                     isGrabbing = false
@@ -144,10 +170,10 @@ struct SiteGrabberView: View {
             }
         }
     }
-    
+
     private func downloadAllAssets() {
         let downloadsPath = SecurityScopedBookmark.getDefaultDownloadDirectoryPath()
-        
+
         Task {
             for asset in grabbedAssets {
                 _ = await DownloadManager.shared.addDownload(
@@ -155,13 +181,13 @@ struct SiteGrabberView: View {
                     destinationPath: downloadsPath
                 )
             }
-            
+
             await MainActor.run {
                 dismiss()
             }
         }
     }
-    
+
     private func typeName(_ type: SiteGrabber.AssetType) -> String {
         switch type {
         case .image: return "Images"
@@ -171,7 +197,7 @@ struct SiteGrabberView: View {
         case .other: return "Other"
         }
     }
-    
+
     private func iconForType(_ type: SiteGrabber.AssetType) -> String {
         switch type {
         case .image: return "photo"
@@ -181,7 +207,7 @@ struct SiteGrabberView: View {
         case .other: return "file"
         }
     }
-    
+
     private func colorForType(_ type: SiteGrabber.AssetType) -> Color {
         switch type {
         case .image: return .blue

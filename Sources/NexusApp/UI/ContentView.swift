@@ -101,6 +101,7 @@ struct ContentView: View {
     @State private var customSpeedUnit: SpeedUnit = .mbps
     @State private var showQueueManager = false
     @State private var showSiteGrabber = false
+    @State private var showBrowserExtensions = false
 
     var filteredTasks: [DownloadTask] {
         tasks.filter { task in
@@ -114,150 +115,181 @@ struct ContentView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(selection: $selection) {
-                Section("Categories") {
-                    ForEach(DownloadCategory.allCases) { category in
-                        let count = tasks.filter { category.matches($0) }.count
-                        let isSelected = selectedQueueID == nil && selectedCategory == category
-                        HStack {
-                            Label(category.rawValue, systemImage: category.icon)
-                            Spacer()
-                            if count > 0 {
-                                Text("\(count)")
-                                    .font(.caption)
+            ZStack {
+                AppColors.background.ignoresSafeArea()
+
+                List(selection: $selection) {
+                    Section("Categories") {
+                        ForEach(DownloadCategory.allCases) { category in
+                            let count = tasks.filter { category.matches($0) }.count
+                            let isSelected = selectedQueueID == nil && selectedCategory == category
+                            HStack {
+                                Label(category.rawValue, systemImage: category.icon)
+                                    .foregroundStyle(
+                                        isSelected ? AppColors.accent : AppColors.textPrimary)
+                                Spacer()
+                                if count > 0 {
+                                    Text("\(count)")
+                                        .font(.caption)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(
+                                            isSelected
+                                                ? AppColors.accent.opacity(0.2)
+                                                : Color.white.opacity(0.1)
+                                        )
+                                        .foregroundStyle(isSelected ? AppColors.accent : .white)
+                                        .clipShape(Capsule())
+                                }
+                            }
+                            .listRowBackground(
+                                isSelected ? AppColors.accent.opacity(0.1) : Color.clear
+                            )
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                selectedCategory = category
+                                selectedQueueID = nil
+                                selection = nil
+                            }
+                        }
+                    }
+                    .headerProminence(.increased)
+
+                    Section("Queues") {
+                        ForEach(queues) { queue in
+                            let queueTasks = tasks.filter { $0.queue?.id == queue.id }
+                            let activeCount = queueTasks.filter {
+                                $0.status == .running || $0.status == .connecting
+                            }.count
+                            let pendingCount = queueTasks.filter { $0.status == .pending }.count
+                            let isSelected = selectedQueueID == queue.id
+                            HStack {
+                                Label(queue.name, systemImage: "list.bullet.rectangle")
+                                    .foregroundStyle(
+                                        isSelected ? AppColors.accent : AppColors.textPrimary)
+                                Spacer()
+                                if activeCount > 0 || pendingCount > 0 {
+                                    HStack(spacing: 4) {
+                                        if activeCount > 0 {
+                                            Text("\(activeCount)")
+                                                .font(.caption2)
+                                                .foregroundStyle(AppColors.accent)
+                                        }
+                                        if pendingCount > 0 {
+                                            Text("\(pendingCount)")
+                                                .font(.caption2)
+                                                .foregroundStyle(.gray)
+                                        }
+                                    }
                                     .padding(.horizontal, 6)
                                     .padding(.vertical, 2)
-                                    .background(Color.secondary.opacity(0.2))
+                                    .background(
+                                        isSelected
+                                            ? AppColors.accent.opacity(0.2)
+                                            : Color.white.opacity(0.1)
+                                    )
                                     .clipShape(Capsule())
-                            }
-                        }
-                        .listRowBackground(isSelected ? Color.accentColor.opacity(0.15) : nil)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            selectedCategory = category
-                            selectedQueueID = nil
-                            selection = nil
-                        }
-                    }
-                }
-
-                Section("Queues") {
-                    ForEach(queues) { queue in
-                        let queueTasks = tasks.filter { $0.queue?.id == queue.id }
-                        let activeCount = queueTasks.filter {
-                            $0.status == .running || $0.status == .connecting
-                        }.count
-                        let pendingCount = queueTasks.filter { $0.status == .pending }.count
-                        let isSelected = selectedQueueID == queue.id
-                        HStack {
-                            Label(queue.name, systemImage: "list.bullet.rectangle")
-                            Spacer()
-                            if activeCount > 0 || pendingCount > 0 {
-                                HStack(spacing: 4) {
-                                    if activeCount > 0 {
-                                        Text("\(activeCount)")
-                                            .font(.caption2)
-                                            .foregroundStyle(.blue)
-                                    }
-                                    if pendingCount > 0 {
-                                        Text("\(pendingCount)")
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-                                    }
                                 }
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Color.secondary.opacity(0.2))
-                                .clipShape(Capsule())
+                            }
+                            .listRowBackground(
+                                isSelected ? AppColors.accent.opacity(0.1) : Color.clear
+                            )
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                selectedQueueID = queue.id
+                                selectedCategory = .all
+                                selection = nil
                             }
                         }
-                        .listRowBackground(isSelected ? Color.accentColor.opacity(0.15) : nil)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            selectedQueueID = queue.id
-                            selectedCategory = .all
-                            selection = nil
+
+                        Button {
+                            showQueueManager = true
+                        } label: {
+                            Label("Manage Queues...", systemImage: "plus.circle")
                         }
+                        .foregroundStyle(AppColors.accent)
                     }
 
-                    Button {
-                        showQueueManager = true
-                    } label: {
-                        Label("Manage Queues...", systemImage: "plus.circle")
-                    }
-                }
-
-                Section("Downloads") {
-                    if filteredTasks.isEmpty {
-                        ContentUnavailableView(
-                            selectedQueueID != nil || selectedCategory != .all
-                                ? "No matching downloads" : "No Downloads",
-                            systemImage: selectedQueueID != nil || selectedCategory != .all
-                                ? "tray" : "arrow.down.circle",
-                            description: Text(
+                    Section("Downloads") {
+                        if filteredTasks.isEmpty {
+                            ContentUnavailableView(
                                 selectedQueueID != nil || selectedCategory != .all
-                                    ? "Try another category or queue, or add a new download."
-                                    : "Add a URL or drag a link here to start.")
-                        )
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                    } else {
-                        ForEach(filteredTasks) { task in
-                            DownloadRowView(task: task)
-                                .tag(task.id)
-                                .contextMenu {
-                                    if task.status == .running {
-                                        Button("Pause") {
-                                            Task {
-                                                await DownloadManager.shared.pauseDownload(
-                                                    taskID: task.id)
+                                    ? "No matching downloads" : "No Downloads",
+                                systemImage: selectedQueueID != nil || selectedCategory != .all
+                                    ? "tray" : "arrow.down.circle",
+                                description: Text(
+                                    selectedQueueID != nil || selectedCategory != .all
+                                        ? "Try another category or queue, or add a new download."
+                                        : "Add a URL or drag a link here to start.")
+                            )
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                            .foregroundStyle(AppColors.textSecondary)
+                        } else {
+                            ForEach(filteredTasks) { task in
+                                DownloadRowView(task: task)
+                                    .tag(task.id)
+                                    .listRowBackground(Color.clear)
+                                    .listRowSeparator(.hidden)
+                                    .padding(.vertical, 4)
+                                    .contextMenu {
+                                        if task.status == .running {
+                                            Button("Pause") {
+                                                Task {
+                                                    await DownloadManager.shared.pauseDownload(
+                                                        taskID: task.id)
+                                                }
+                                            }
+                                        } else if task.status == .paused || task.status == .pending
+                                        {
+                                            Button("Resume") {
+                                                Task {
+                                                    await DownloadManager.shared.resumeDownload(
+                                                        taskID: task.id)
+                                                }
                                             }
                                         }
-                                    } else if task.status == .paused || task.status == .pending {
-                                        Button("Resume") {
-                                            Task {
-                                                await DownloadManager.shared.resumeDownload(
-                                                    taskID: task.id)
+                                        if task.status == .error {
+                                            Button("Retry") {
+                                                Task {
+                                                    await DownloadManager.shared.startDownload(
+                                                        taskID: task.id)
+                                                }
                                             }
                                         }
-                                    }
-                                    if task.status == .error {
-                                        Button("Retry") {
-                                            Task {
-                                                await DownloadManager.shared.startDownload(
-                                                    taskID: task.id)
+                                        if task.status == .complete {
+                                            Button("Show in Finder") {
+                                                NSWorkspace.shared.selectFile(
+                                                    task.destinationPath,
+                                                    inFileViewerRootedAtPath: "")
                                             }
                                         }
-                                    }
-                                    if task.status == .complete {
-                                        Button("Show in Finder") {
-                                            NSWorkspace.shared.selectFile(
-                                                task.destinationPath, inFileViewerRootedAtPath: "")
+                                        Divider()
+                                        Button("Copy URL") {
+                                            NSPasteboard.general.clearContents()
+                                            NSPasteboard.general.setString(
+                                                task.sourceURL.absoluteString, forType: .string)
                                         }
-                                    }
-                                    Divider()
-                                    Button("Copy URL") {
-                                        NSPasteboard.general.clearContents()
-                                        NSPasteboard.general.setString(
-                                            task.sourceURL.absoluteString, forType: .string)
-                                    }
-                                    Button("Open in Browser") {
-                                        NSWorkspace.shared.open(task.sourceURL)
-                                    }
-                                    Divider()
-                                    Button("Delete", role: .destructive) {
-                                        Task {
-                                            await DownloadManager.shared.cancelDownload(
-                                                taskID: task.id)
-                                            modelContext.delete(task)
+                                        Button("Open in Browser") {
+                                            NSWorkspace.shared.open(task.sourceURL)
                                         }
+                                        Divider()
+                                        Button("Delete", role: .destructive) {
+                                            Task {
+                                                await DownloadManager.shared.cancelDownload(
+                                                    taskID: task.id)
+                                                modelContext.delete(task)
+                                            }
+                                        }
+                                        .keyboardShortcut(.delete)
                                     }
-                                    .keyboardShortcut(.delete)
-                                }
+                            }
+                            .onDelete(perform: deleteItems)
                         }
-                        .onDelete(perform: deleteItems)
                     }
                 }
+                .scrollContentBackground(.hidden)
+                .background(.ultraThinMaterial)
             }
             .listStyle(.sidebar)
             .navigationSplitViewColumnWidth(min: 280, ideal: 320)
@@ -372,29 +404,41 @@ struct ContentView: View {
                             Label("Site Grabber", systemImage: "globe.badge.chevron.backward")
                         }
                         .help("Grab assets from a website")
+
+                        Button {
+                            showBrowserExtensions = true
+                        } label: {
+                            Label("Extensions", systemImage: "puzzlepiece.extension")
+                        }
+                        .help("Browser Integration Settings")
                     }
                 }
             }
         } detail: {
-            if let selectedID = selection,
-                let task = filteredTasks.first(where: { $0.id == selectedID })
-            {
-                TaskDetailView(task: task)
-            } else {
-                ContentUnavailableView(
-                    "Select a Download", systemImage: "arrow.down.circle",
-                    description: Text("Choose a download from the sidebar")
-                )
-                .dropDestination(for: String.self) { items, _ in
-                    let downloadsPath = SecurityScopedBookmark.getDefaultDownloadDirectoryPath()
-                    for item in items {
-                        if URL(string: item) != nil {
-                            Task {
-                                try? await addDownload(urlString: item, path: downloadsPath)
+            ZStack {
+                AppColors.background.ignoresSafeArea()
+
+                if let selectedID = selection,
+                    let task = filteredTasks.first(where: { $0.id == selectedID })
+                {
+                    TaskDetailView(task: task)
+                } else {
+                    ContentUnavailableView(
+                        "Select a Download", systemImage: "arrow.down.circle",
+                        description: Text("Choose a download from the sidebar")
+                    )
+                    .foregroundStyle(AppColors.textSecondary)
+                    .dropDestination(for: String.self) { items, _ in
+                        let downloadsPath = SecurityScopedBookmark.getDefaultDownloadDirectoryPath()
+                        for item in items {
+                            if URL(string: item) != nil {
+                                Task {
+                                    try? await addDownload(urlString: item, path: downloadsPath)
+                                }
                             }
                         }
+                        return true
                     }
-                    return true
                 }
             }
         }
@@ -456,6 +500,9 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showSiteGrabber) {
             SiteGrabberView()
+        }
+        .sheet(isPresented: $showBrowserExtensions) {
+            BrowserExtensionsView()
         }
         .onAppear {
             DownloadManager.shared.setModelContainer(modelContext.container)
@@ -560,69 +607,102 @@ struct DownloadRowView: View {
     let timer = Timer.publish(every: 0.15, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(task.effectiveDisplayName)
-                .font(.headline)
-                .lineLimit(1)
+        GlassCard(cornerRadius: 12, padding: 12) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(task.effectiveDisplayName)
+                            .appHeadlineStyle()
+                            .lineLimit(1)
 
-            HStack {
-                statusIcon
-                Text(statusText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                        Text(task.sourceURL.host() ?? task.sourceURL.absoluteString)
+                            .appCaptionStyle()
+                            .lineLimit(1)
+                    }
 
-                if (task.status == .running || task.status == .connecting) && currentSpeed > 0 {
-                    Text(formatSpeed(currentSpeed))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Spacer()
+
+                    statusIcon
+                        .font(.title3)
                 }
 
-                Spacer()
-
-                if task.status == .running || task.status == .connecting,
-                    let remaining = timeRemaining
+                if task.status == .running || task.status == .extracting
+                    || task.status == .connecting
                 {
-                    Text(formatTimeRemaining(remaining))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    VStack(spacing: 4) {
+                        if task.status == .extracting {
+                            ProgressView()
+                                .progressViewStyle(.linear)
+                                .tint(AppColors.accent)
+                        } else if task.status == .connecting {
+                            ProgressView()
+                                .progressViewStyle(.linear)
+                                .tint(AppColors.accent)
+                        } else {
+                            ProgressView(value: displayProgress)
+                                .progressViewStyle(.linear)
+                                .tint(AppColors.accent)
+                                .animation(.easeInOut(duration: 0.15), value: displayProgress)
+                        }
+
+                        HStack {
+                            Text(formatBytes(task.downloadedBytes))
+                                .appCaptionStyle()
+                            Spacer()
+                            if let total = task.totalSize > 0 ? task.totalSize : nil {
+                                Text(formatBytes(total))
+                                    .appCaptionStyle()
+                            }
+                        }
+                    }
                 }
 
-                // Resume capability indicator
-                if task.status == .paused || task.status == .pending {
-                    HStack(spacing: 2) {
+                HStack {
+                    Text(statusText)
+                        .appCaptionStyle()
+                        .foregroundStyle(statusColor)
+
+                    Spacer()
+
+                    if (task.status == .running || task.status == .connecting) && currentSpeed > 0 {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.down.circle.fill")
+                            Text(formatSpeed(currentSpeed))
+                        }
+                        .font(.caption)
+                        .foregroundStyle(AppColors.accent)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 2)
+                        .background(AppColors.accent.opacity(0.1))
+                        .clipShape(Capsule())
+                    }
+
+                    if task.status == .running || task.status == .connecting,
+                        let remaining = timeRemaining
+                    {
+                        HStack(spacing: 4) {
+                            Image(systemName: "clock.fill")
+                            Text(formatTimeRemaining(remaining))
+                        }
+                        .font(.caption)
+                        .foregroundStyle(AppColors.textSecondary)
+                    }
+
+                    // Resume capability indicator
+                    if task.status == .paused || task.status == .pending {
                         Image(
                             systemName: task.supportsResume
                                 ? "arrow.clockwise.circle.fill" : "xmark.circle.fill"
                         )
-                        .font(.caption2)
-                        Text(task.supportsResume ? "Yes" : "No")
-                            .font(.caption2)
-                    }
-                    .foregroundStyle(task.supportsResume ? .green : .orange)
-                }
-
-                if task.totalSize > 0 {
-                    Text(formatBytes(task.totalSize))
                         .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            if task.status == .running || task.status == .extracting || task.status == .connecting {
-                if task.status == .extracting {
-                    ProgressView()
-                        .progressViewStyle(.linear)
-                } else if task.status == .connecting {
-                    ProgressView()
-                        .progressViewStyle(.linear)
-                } else {
-                    ProgressView(value: displayProgress)
-                        .progressViewStyle(.linear)
-                        .animation(.easeInOut(duration: 0.15), value: displayProgress)
+                        .foregroundStyle(
+                            task.supportsResume ? AppColors.success : AppColors.warning
+                        )
+                        .help(task.supportsResume ? "Resumable" : "Not Resumable")
+                    }
                 }
             }
         }
-        .padding(.vertical, 4)
         .onReceive(timer) { _ in
             updateProgress()
         }
@@ -671,45 +751,54 @@ struct DownloadRowView: View {
             switch task.status {
             case .paused:
                 Image(systemName: "pause.circle.fill")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(AppColors.warning)
             case .pending:
                 Image(systemName: "clock.fill")
-                    .foregroundStyle(.gray)
+                    .foregroundStyle(AppColors.textSecondary)
             case .connecting:
                 Image(systemName: "link.circle.fill")
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(AppColors.info)
             case .running:
                 Image(systemName: "arrow.down.circle.fill")
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(AppColors.accent)
             case .complete:
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(AppColors.success)
             case .error:
                 Image(systemName: "exclamationmark.circle.fill")
-                    .foregroundStyle(.red)
+                    .foregroundStyle(AppColors.error)
             case .extracting:
                 Image(systemName: "wand.and.stars")
-                    .foregroundStyle(.purple)
+                    .foregroundStyle(Color.purple)
             }
         }
-        .font(.caption)
     }
 
     private var statusText: String {
         switch task.status {
         case .paused: return "Paused"
-        case .running: return "Downloading..."
+        case .running: return "Downloading"
         case .pending: return "Pending"
-        case .connecting: return "Connecting to server..."
+        case .connecting: return "Connecting"
         case .complete: return "Complete"
         case .error: return task.errorMessage ?? "Error"
-        case .extracting: return "Extracting media info..."
+        case .extracting: return "Extracting Info"
+        }
+    }
+
+    private var statusColor: Color {
+        switch task.status {
+        case .paused: return AppColors.warning
+        case .running: return AppColors.accent
+        case .complete: return AppColors.success
+        case .error: return AppColors.error
+        default: return AppColors.textSecondary
         }
     }
 
     private var progress: Double {
         guard task.totalSize > 0 else { return 0 }
-        let downloaded = task.segments.reduce(0) { $0 + ($1.currentOffset - $1.startOffset) }
+        let downloaded = task.downloadedBytes
         return Double(downloaded) / Double(task.totalSize)
     }
 
