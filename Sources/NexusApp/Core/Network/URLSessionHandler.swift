@@ -60,6 +60,19 @@ class URLSessionHandler: NetworkHandler {
         )
     }
 
+    private var authHeader: String?
+
+    func setCredentials(username: String?, password: String?) {
+        guard let username = username, let password = password, !username.isEmpty else {
+            authHeader = nil
+            return
+        }
+        let loginString = "\(username):\(password)"
+        guard let loginData = loginString.data(using: .utf8) else { return }
+        let base64LoginString = loginData.base64EncodedString()
+        authHeader = "Basic \(base64LoginString)"
+    }
+
     func headRequest(url: URL) async throws -> (
         contentLength: Int64, acceptsRanges: Bool, lastModified: Date?, eTag: String?
     ) {
@@ -222,6 +235,10 @@ class URLSessionHandler: NetworkHandler {
         // Add Referer header if provided - critical for sites that check origin
         if let referer = referer {
             request.setValue(referer.absoluteString, forHTTPHeaderField: "Referer")
+        }
+
+        if let auth = authHeader {
+            request.setValue(auth, forHTTPHeaderField: "Authorization")
         }
     }
 

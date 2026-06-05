@@ -106,6 +106,9 @@ actor TaskCoordinator {
                 throw NetworkError.connectionFailed
             }
 
+            // Set credentials if available
+            handler.setCredentials(username: task.username, password: task.password)
+
             // Perform HEAD request validation before resume
             // Try URLSession first, fall back to curl if server rejects URLSession's TLS fingerprint
             print("TaskCoordinator: Performing HEAD request for validation...")
@@ -121,6 +124,7 @@ actor TaskCoordinator {
                         "TaskCoordinator: URLSession rejected by server (-1005), falling back to curl..."
                     )
                     let curlHandler = CurlNetworkHandler()
+                    curlHandler.setCredentials(username: task.username, password: task.password)
                     networkHandler = curlHandler
                     meta = try await curlHandler.headRequest(url: task.sourceURL)
                 } else {
@@ -318,6 +322,16 @@ actor TaskCoordinator {
                 guard let handler = networkHandler else {
                     throw NetworkError.connectionFailed
                 }
+
+                // Ensure credentials are set (in case handler was recreated or context changed)
+                // Ensure credentials are set (in case handler was recreated or context changed)
+                let credentials = await MainActor.run {
+                    if let task = fetchTask() {
+                        return (task.username, task.password)
+                    }
+                    return (nil as String?, nil as String?)
+                }
+                handler.setCredentials(username: credentials.0, password: credentials.1)
 
                 // Fetch fresh offset in case it changed (though usually this actor owns it)
                 let currentStart = segment.currentOffset

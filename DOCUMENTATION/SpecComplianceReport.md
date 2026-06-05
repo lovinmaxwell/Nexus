@@ -29,7 +29,7 @@ This report checks each requirement from **Building IDM for Mac.md** against the
 | **FR-04** | Save state every 30 seconds for crash recovery | ✅ | Implemented **stricter**: `persistenceInterval = 1.0` s + per-chunk save every `minSaveInterval` (0.2 s) |
 | **FR-05** | APFS Sparse Files (FileHandle, truncate, no zero-fill) | ✅ | `SparseFileHandler`: FileHandle, `truncate(atOffset:)`, seek + write |
 | **FR-06** | Safari, Chrome, Firefox extensions via Native Messaging | ✅ | All three in `BrowserExtensions/`; `NexusHost` reads 4-byte length + JSON |
-| **FR-07** | Detect video (M3U8, MP4, FLV) and inject "Download with Nexus" on player | ⚠️ | Context menu "Download with Nexus" and overlay exist; Chrome `showOverlay` on icon click; no explicit M3U8/MP4/FLV detection on video element in content script |
+| **FR-07** | Detect video (M3U8, MP4, FLV) and inject "Download with Nexus" on player | ✅ | Chrome, Firefox, and Safari content scripts scan `video` / `source` URLs for direct M3U8/MP4/FLV media and inject an in-player overlay that forwards the stream URL to the native host |
 | **FR-08** | Embedded yt-dlp; stream merging (Audio+Video) | ✅ | `Resources/bin/yt-dlp` (bundle); `MediaExtractor`, `StreamMuxer`; `ytDlpUpdater` |
 | **FR-09** | Named queues; configurable concurrent downloads | ✅ | `DownloadQueue` (name, `maxConcurrentDownloads`), `QueueManager`, `QueueManagerView` |
 | **FR-10** | Token Bucket speed limiting | ✅ | `SpeedLimiter` + `TokenBucket` in `SpeedLimiter.swift`; `requestPermissionToTransfer` in `TaskCoordinator` |
@@ -139,7 +139,7 @@ This report checks each requirement from **Building IDM for Mac.md** against the
 |----------|-------------------|----------------------|------------------|
 | Core engine (segmentation, protocols, resume) | FR-01–05, 4.2, 4.3 | — | — |
 | Persistence | FR-04 (stricter), 4.4 (SwiftData) | — | — |
-| Browser & Native Messaging | FR-06, 4.5 (protocol) | FR-07 (overlay scope), 4.5 (manifest name, IPC mechanism) | — |
+| Browser & Native Messaging | FR-06, FR-07, 4.5 (protocol) | 4.5 (manifest name, IPC mechanism) | — |
 | Media | FR-08, 4.6 | — | — |
 | Scheduler & speed limit | FR-09, FR-10, 5.1, 5.2, 5.3 | 5.2 (no BGAppRefresh) | — |
 | Site Grabber | FR-11 | — | — |
@@ -152,7 +152,6 @@ This report checks each requirement from **Building IDM for Mac.md** against the
 2. **FR-04** — Spec says “every 30 seconds”; implementation saves **more frequently** (1 s + 0.2 s), so the requirement is exceeded.
 3. **Persistence technology** — Spec says “Core Data”; implementation uses **SwiftData** (same persistence model, different API).
 4. **Native Messaging** — Manifest name is `com.nexus.host` (spec: `com.projectnexus.host`); IPC is file + DistributedNotification, not CFMessagePort/XPC.
-5. **FR-07** — “Download with Nexus” and overlay exist; video-stream detection (M3U8/MP4/FLV) and injection on the **video player** are only partially reflected in the extension.
-6. **Sync when app not running** — BGAppRefreshTask is iOS-only; macOS uses Timer when app is active.
+5. **Sync when app not running** — BGAppRefreshTask is iOS-only; macOS uses Timer when app is active.
 
 All other requirements are implemented as specified or with equivalent behavior.

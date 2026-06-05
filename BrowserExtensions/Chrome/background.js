@@ -426,10 +426,28 @@ async function sendToNexus(request) {
     } else {
       showNotification("Error", response.message);
     }
+    return response;
   } catch (error) {
     showNotification("Connection Error", "Could not connect to Nexus. Is it running?");
     console.error("Native messaging error:", error);
+    throw error;
   }
+}
+
+async function sendContentScriptDownload(message, sender) {
+  const request = {
+    url: message.url,
+    originalUrl: message.originalUrl || message.url,
+    filename: message.filename || null,
+    cookies: await getCookies(message.url),
+    referrer: message.referrer || sender?.tab?.url || "",
+    tabUrl: sender?.tab?.url || message.tabUrl || "",
+    userAgent: message.userAgent || navigator.userAgent,
+    captureMethod: message.captureMethod || "contentScript",
+    timestamp: Date.now()
+  };
+  
+  return sendToNexus(request);
 }
 
 // ============================================================================
@@ -531,6 +549,15 @@ function showNotification(title, message) {
     message: message
   });
 }
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.action === "download") {
+    sendContentScriptDownload(message, sender)
+      .then(() => sendResponse({ success: true }))
+      .catch((error) => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+});
 
 /**
  * Handle extension icon click

@@ -9,10 +9,22 @@
     "nativeMessaging",
     "activeTab",
     "cookies",
+    "notifications",
     "webRequest",
     "webRequestBlocking",
     "storage",
     "<all_urls>"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
   ],
   "background": {
     "scripts": ["background.js"]

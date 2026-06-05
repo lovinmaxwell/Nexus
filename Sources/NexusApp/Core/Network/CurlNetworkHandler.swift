@@ -17,6 +17,14 @@ class CurlNetworkHandler: NetworkHandler {
         }
     }
 
+    private var username: String?
+    private var password: String?
+
+    func setCredentials(username: String?, password: String?) {
+        self.username = username
+        self.password = password
+    }
+
     func headRequest(url: URL) async throws -> (
         contentLength: Int64, acceptsRanges: Bool, lastModified: Date?, eTag: String?
     ) {
@@ -36,10 +44,16 @@ class CurlNetworkHandler: NetworkHandler {
             "-H", "Accept-Encoding: identity",  // Avoid compression for metadata
             "-H", "Referer: \(url.absoluteString)",
             "-o", "/dev/null",  // Discard the body
-            url.absoluteString,
         ]
 
-        let output = try await runCurl(args)
+        var finalArgs = args
+        // Add auth if provided
+        if let user = username, let pass = password {
+            finalArgs += ["-u", "\(user):\(pass)"]
+        }
+        finalArgs.append(url.absoluteString)
+
+        let output = try await runCurl(finalArgs)
         return parseHeaders(output)
     }
 
@@ -74,6 +88,11 @@ class CurlNetworkHandler: NetworkHandler {
 
         if let rangeHeader = rangeHeader {
             args += ["-H", "Range: \(rangeHeader)"]
+        }
+
+        // Add auth if provided
+        if let user = username, let pass = password {
+            args += ["-u", "\(user):\(pass)"]
         }
 
         args.append(url.absoluteString)

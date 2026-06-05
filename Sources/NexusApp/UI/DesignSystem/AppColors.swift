@@ -1,29 +1,29 @@
+import AppKit
 import SwiftUI
 
 struct AppColors {
     // MARK: - Core Palette
-    // Using hardcoded values as fallback since Asset Catalog might be missing these sets
-    static let background = Color(hex: "0F0F0F")  // Deep dark background
-    static let surface = Color(hex: "1C1C1E").opacity(0.6)  // Glass-like surface
-    static let accent = Color(hex: "0A84FF")  // iOS Blue-like accent (Neon Blue)
-    static let textPrimary = Color.white
-    static let textSecondary = Color.gray
+    static let background = Color(nsColor: .windowBackgroundColor)
+    static let surface = Color(nsColor: .controlBackgroundColor).opacity(0.72)
+    static let accent = Color.accentColor
+    static let textPrimary = Color.primary
+    static let textSecondary = Color.secondary
 
     // MARK: - Functional Colors
-    static let success = Color(hex: "30D158")  // Green
-    static let warning = Color(hex: "FF9F0A")  // Orange
-    static let error = Color(hex: "FF453A")  // Red
-    static let info = Color(hex: "64D2FF")  // Light Blue
+    static let success = Color(nsColor: .systemGreen)
+    static let warning = Color(nsColor: .systemOrange)
+    static let error = Color(nsColor: .systemRed)
+    static let info = Color(nsColor: .systemTeal)
 
     // MARK: - Gradients
     static let primaryGradient = LinearGradient(
-        colors: [Color(hex: "4A90E2"), Color(hex: "0056D2")],
+        colors: [accent.opacity(0.9), accent.opacity(0.45)],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )
 
     static let glassGradient = LinearGradient(
-        colors: [.white.opacity(0.1), .white.opacity(0.05)],
+        colors: [.white.opacity(0.22), .white.opacity(0.05)],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )

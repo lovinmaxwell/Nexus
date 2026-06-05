@@ -119,174 +119,9 @@ struct ContentView: View {
                 AppColors.background.ignoresSafeArea()
 
                 List(selection: $selection) {
-                    Section("Categories") {
-                        ForEach(DownloadCategory.allCases) { category in
-                            let count = tasks.filter { category.matches($0) }.count
-                            let isSelected = selectedQueueID == nil && selectedCategory == category
-                            HStack {
-                                Label(category.rawValue, systemImage: category.icon)
-                                    .foregroundStyle(
-                                        isSelected ? AppColors.accent : AppColors.textPrimary)
-                                Spacer()
-                                if count > 0 {
-                                    Text("\(count)")
-                                        .font(.caption)
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
-                                        .background(
-                                            isSelected
-                                                ? AppColors.accent.opacity(0.2)
-                                                : Color.white.opacity(0.1)
-                                        )
-                                        .foregroundStyle(isSelected ? AppColors.accent : .white)
-                                        .clipShape(Capsule())
-                                }
-                            }
-                            .listRowBackground(
-                                isSelected ? AppColors.accent.opacity(0.1) : Color.clear
-                            )
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                selectedCategory = category
-                                selectedQueueID = nil
-                                selection = nil
-                            }
-                        }
-                    }
-                    .headerProminence(.increased)
-
-                    Section("Queues") {
-                        ForEach(queues) { queue in
-                            let queueTasks = tasks.filter { $0.queue?.id == queue.id }
-                            let activeCount = queueTasks.filter {
-                                $0.status == .running || $0.status == .connecting
-                            }.count
-                            let pendingCount = queueTasks.filter { $0.status == .pending }.count
-                            let isSelected = selectedQueueID == queue.id
-                            HStack {
-                                Label(queue.name, systemImage: "list.bullet.rectangle")
-                                    .foregroundStyle(
-                                        isSelected ? AppColors.accent : AppColors.textPrimary)
-                                Spacer()
-                                if activeCount > 0 || pendingCount > 0 {
-                                    HStack(spacing: 4) {
-                                        if activeCount > 0 {
-                                            Text("\(activeCount)")
-                                                .font(.caption2)
-                                                .foregroundStyle(AppColors.accent)
-                                        }
-                                        if pendingCount > 0 {
-                                            Text("\(pendingCount)")
-                                                .font(.caption2)
-                                                .foregroundStyle(.gray)
-                                        }
-                                    }
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(
-                                        isSelected
-                                            ? AppColors.accent.opacity(0.2)
-                                            : Color.white.opacity(0.1)
-                                    )
-                                    .clipShape(Capsule())
-                                }
-                            }
-                            .listRowBackground(
-                                isSelected ? AppColors.accent.opacity(0.1) : Color.clear
-                            )
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                selectedQueueID = queue.id
-                                selectedCategory = .all
-                                selection = nil
-                            }
-                        }
-
-                        Button {
-                            showQueueManager = true
-                        } label: {
-                            Label("Manage Queues...", systemImage: "plus.circle")
-                        }
-                        .foregroundStyle(AppColors.accent)
-                    }
-
-                    Section("Downloads") {
-                        if filteredTasks.isEmpty {
-                            ContentUnavailableView(
-                                selectedQueueID != nil || selectedCategory != .all
-                                    ? "No matching downloads" : "No Downloads",
-                                systemImage: selectedQueueID != nil || selectedCategory != .all
-                                    ? "tray" : "arrow.down.circle",
-                                description: Text(
-                                    selectedQueueID != nil || selectedCategory != .all
-                                        ? "Try another category or queue, or add a new download."
-                                        : "Add a URL or drag a link here to start.")
-                            )
-                            .listRowBackground(Color.clear)
-                            .listRowSeparator(.hidden)
-                            .foregroundStyle(AppColors.textSecondary)
-                        } else {
-                            ForEach(filteredTasks) { task in
-                                DownloadRowView(task: task)
-                                    .tag(task.id)
-                                    .listRowBackground(Color.clear)
-                                    .listRowSeparator(.hidden)
-                                    .padding(.vertical, 4)
-                                    .contextMenu {
-                                        if task.status == .running {
-                                            Button("Pause") {
-                                                Task {
-                                                    await DownloadManager.shared.pauseDownload(
-                                                        taskID: task.id)
-                                                }
-                                            }
-                                        } else if task.status == .paused || task.status == .pending
-                                        {
-                                            Button("Resume") {
-                                                Task {
-                                                    await DownloadManager.shared.resumeDownload(
-                                                        taskID: task.id)
-                                                }
-                                            }
-                                        }
-                                        if task.status == .error {
-                                            Button("Retry") {
-                                                Task {
-                                                    await DownloadManager.shared.startDownload(
-                                                        taskID: task.id)
-                                                }
-                                            }
-                                        }
-                                        if task.status == .complete {
-                                            Button("Show in Finder") {
-                                                NSWorkspace.shared.selectFile(
-                                                    task.destinationPath,
-                                                    inFileViewerRootedAtPath: "")
-                                            }
-                                        }
-                                        Divider()
-                                        Button("Copy URL") {
-                                            NSPasteboard.general.clearContents()
-                                            NSPasteboard.general.setString(
-                                                task.sourceURL.absoluteString, forType: .string)
-                                        }
-                                        Button("Open in Browser") {
-                                            NSWorkspace.shared.open(task.sourceURL)
-                                        }
-                                        Divider()
-                                        Button("Delete", role: .destructive) {
-                                            Task {
-                                                await DownloadManager.shared.cancelDownload(
-                                                    taskID: task.id)
-                                                modelContext.delete(task)
-                                            }
-                                        }
-                                        .keyboardShortcut(.delete)
-                                    }
-                            }
-                            .onDelete(perform: deleteItems)
-                        }
-                    }
+                    categoriesSection
+                    queuesSection
+                    taskListView
                 }
                 .scrollContentBackground(.hidden)
                 .background(.ultraThinMaterial)
@@ -472,14 +307,17 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showAddSheet) {
             AddDownloadSheet(urlString: $newURLString, modelContext: modelContext) {
-                urlString, path, connectionCount, queueID, startPaused, formatID in
+                urlString, path, connectionCount, queueID, startPaused, formatID, username, password
+                in
                 try await addDownload(
                     urlString: urlString,
                     path: path,
                     connectionCount: connectionCount,
                     queueID: queueID,
                     startPaused: startPaused,
-                    preferredFormatID: formatID
+                    preferredFormatID: formatID,
+                    username: username,
+                    password: password
                 )
             }
         }
@@ -526,7 +364,9 @@ struct ContentView: View {
         connectionCount: Int = 8,
         queueID: UUID? = nil,
         startPaused: Bool = false,
-        preferredFormatID: String? = nil
+        preferredFormatID: String? = nil,
+        username: String? = nil,
+        password: String? = nil
     ) async throws {
         let extractor = MediaExtractor.shared
         let trimmedURL = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -551,7 +391,8 @@ struct ContentView: View {
 
             let taskID = await DownloadManager.shared.addDownload(
                 url: url, destinationPath: path, connectionCount: connectionCount,
-                queueID: queueID, startPaused: startPaused, requireExtension: true)
+                queueID: queueID, startPaused: startPaused, requireExtension: true,
+                username: username, password: password)
             if taskID == nil {
                 lastErrorMessage =
                     "URL must have a file extension. Browser downloads will automatically detect the extension."
@@ -592,6 +433,179 @@ struct ContentView: View {
                     await DownloadManager.shared.cancelDownload(taskID: task.id)
                     modelContext.delete(task)
                 }
+            }
+        }
+    }
+    private var categoriesSection: some View {
+        Section("Categories") {
+            ForEach(DownloadCategory.allCases) { category in
+                let count = tasks.filter { category.matches($0) }.count
+                let isSelected = selectedQueueID == nil && selectedCategory == category
+                HStack {
+                    Label(category.rawValue, systemImage: category.icon)
+                        .foregroundStyle(
+                            isSelected ? AppColors.accent : AppColors.textPrimary)
+                    Spacer()
+                    if count > 0 {
+                        Text("\(count)")
+                            .font(.caption)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                isSelected
+                                    ? AppColors.accent.opacity(0.2)
+                                    : Color.white.opacity(0.1)
+                            )
+                            .foregroundStyle(isSelected ? AppColors.accent : .white)
+                            .clipShape(Capsule())
+                    }
+                }
+                .listRowBackground(
+                    isSelected ? AppColors.accent.opacity(0.1) : Color.clear
+                )
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    selectedCategory = category
+                    selectedQueueID = nil
+                    selection = nil
+                }
+            }
+        }
+        .headerProminence(.increased)
+    }
+
+    private var queuesSection: some View {
+        Section("Queues") {
+            ForEach(queues) { queue in
+                let queueTasks = tasks.filter { $0.queue?.id == queue.id }
+                let activeCount = queueTasks.filter {
+                    $0.status == .running || $0.status == .connecting
+                }.count
+                let pendingCount = queueTasks.filter { $0.status == .pending }.count
+                let isSelected = selectedQueueID == queue.id
+                HStack {
+                    Label(queue.name, systemImage: "list.bullet.rectangle")
+                        .foregroundStyle(
+                            isSelected ? AppColors.accent : AppColors.textPrimary)
+                    Spacer()
+                    if activeCount > 0 || pendingCount > 0 {
+                        HStack(spacing: 4) {
+                            if activeCount > 0 {
+                                Text("\(activeCount)")
+                                    .font(.caption2)
+                                    .foregroundStyle(AppColors.accent)
+                            }
+                            if pendingCount > 0 {
+                                Text("\(pendingCount)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.gray)
+                            }
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            isSelected
+                                ? AppColors.accent.opacity(0.2)
+                                : Color.white.opacity(0.1)
+                        )
+                        .clipShape(Capsule())
+                    }
+                }
+                .listRowBackground(
+                    isSelected ? AppColors.accent.opacity(0.1) : Color.clear
+                )
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    selectedQueueID = queue.id
+                    selectedCategory = .all
+                    selection = nil
+                }
+            }
+
+            Button {
+                showQueueManager = true
+            } label: {
+                Label("Manage Queues...", systemImage: "plus.circle")
+            }
+            .foregroundStyle(AppColors.accent)
+        }
+    }
+
+    private var taskListView: some View {
+        Section("Downloads") {
+            if filteredTasks.isEmpty {
+                ContentUnavailableView(
+                    selectedQueueID != nil || selectedCategory != .all
+                        ? "No matching downloads" : "No Downloads",
+                    systemImage: selectedQueueID != nil || selectedCategory != .all
+                        ? "tray" : "arrow.down.circle",
+                    description: Text(
+                        selectedQueueID != nil || selectedCategory != .all
+                            ? "Try another category or queue, or add a new download."
+                            : "Add a URL or drag a link here to start.")
+                )
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+                .foregroundStyle(AppColors.textSecondary)
+            } else {
+                ForEach(filteredTasks) { task in
+                    DownloadRowView(task: task)
+                        .tag(task.id)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                        .padding(.vertical, 4)
+                        .contextMenu {
+                            if task.status == .running {
+                                Button("Pause") {
+                                    Task {
+                                        await DownloadManager.shared.pauseDownload(
+                                            taskID: task.id)
+                                    }
+                                }
+                            } else if task.status == .paused || task.status == .pending {
+                                Button("Resume") {
+                                    Task {
+                                        await DownloadManager.shared.resumeDownload(
+                                            taskID: task.id)
+                                    }
+                                }
+                            }
+                            if task.status == .error {
+                                Button("Retry") {
+                                    Task {
+                                        await DownloadManager.shared.startDownload(
+                                            taskID: task.id)
+                                    }
+                                }
+                            }
+                            if task.status == .complete {
+                                Button("Show in Finder") {
+                                    NSWorkspace.shared.selectFile(
+                                        task.destinationPath,
+                                        inFileViewerRootedAtPath: "")
+                                }
+                            }
+                            Divider()
+                            Button("Copy URL") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(
+                                    task.sourceURL.absoluteString, forType: .string)
+                            }
+                            Button("Open in Browser") {
+                                NSWorkspace.shared.open(task.sourceURL)
+                            }
+                            Divider()
+                            Button("Delete", role: .destructive) {
+                                Task {
+                                    await DownloadManager.shared.cancelDownload(
+                                        taskID: task.id)
+                                    modelContext.delete(task)
+                                }
+                            }
+                            .keyboardShortcut(.delete)
+                        }
+                }
+                .onDelete(perform: deleteItems)
             }
         }
     }
@@ -998,287 +1012,6 @@ struct SegmentRowView: View {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
         return formatter.string(fromByteCount: bytes)
-    }
-}
-
-struct AddDownloadSheet: View {
-    @Environment(\.dismiss) var dismiss
-    @Binding var urlString: String
-    @State private var destinationPath: String = ""
-    @State private var availableFormats: [MediaExtractor.MediaFormat] = []
-    @State private var selectedFormatID: String = "best"
-    @State private var isLoadingFormats = false
-    @State private var isAdding = false
-    @State private var addPhaseMessage: String?
-    @State private var formatError: String?
-    @State private var errorMessage: String?
-    @State private var connectionCount: Int = 8
-    @State private var selectedQueueID: UUID?
-    @State private var startPaused: Bool = false
-    @Query(sort: \DownloadQueue.name) private var queues: [DownloadQueue]
-    let modelContext: ModelContext
-    let onAdd: (String, String, Int, UUID?, Bool, String?) async throws -> Void
-
-    private var isMediaURL: Bool {
-        MediaExtractor.shared.isMediaURL(urlString)
-    }
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Text("Add Download")
-                .font(.headline)
-
-            TextField("URL", text: $urlString)
-                .textFieldStyle(.roundedBorder)
-                .dropDestination(for: String.self) { items, _ in
-                    if let firstItem = items.first {
-                        urlString = firstItem
-                    }
-                    return true
-                }
-                .dropDestination(for: URL.self) { urls, _ in
-                    if let firstURL = urls.first, !firstURL.isFileURL {
-                        urlString = firstURL.absoluteString
-                    }
-                    return true
-                }
-
-            if isMediaURL {
-                Text("YouTube/Media URL detected - will extract video")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            if isMediaURL {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Format:")
-                            .frame(width: 120, alignment: .trailing)
-                        Picker("Resolution", selection: $selectedFormatID) {
-                            Text("Best (auto)").tag("best")
-                            ForEach(availableFormats) { format in
-                                Text(format.displayName).tag(format.id)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        Spacer()
-                    }
-
-                    HStack {
-                        Button(availableFormats.isEmpty ? "Load Formats" : "Refresh Formats") {
-                            loadFormats()
-                        }
-                        .disabled(isLoadingFormats)
-
-                        if isLoadingFormats {
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-                        Spacer()
-                    }
-
-                    if let error = formatError {
-                        Text(error)
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                    } else if availableFormats.isEmpty {
-                        Text(
-                            "Uses best available format. Load formats to choose a specific resolution."
-                        )
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    }
-                }
-            }
-
-            HStack {
-                TextField("Destination Folder", text: $destinationPath)
-                    .textFieldStyle(.roundedBorder)
-
-                Button("Choose...") {
-                    chooseDestination()
-                }
-            }
-
-            // Connection count selector
-            HStack {
-                Text("Connections:")
-                    .frame(width: 120, alignment: .trailing)
-                Stepper(value: $connectionCount, in: 1...32) {
-                    Text("\(connectionCount)")
-                        .frame(width: 40)
-                }
-                Spacer()
-            }
-
-            // Queue assignment dropdown
-            HStack {
-                Text("Queue:")
-                    .frame(width: 120, alignment: .trailing)
-                Picker("Queue", selection: $selectedQueueID) {
-                    Text("Default").tag(nil as UUID?)
-                    ForEach(queues) { queue in
-                        Text(queue.name).tag(queue.id as UUID?)
-                    }
-                }
-                .pickerStyle(.menu)
-                Spacer()
-            }
-
-            // Start paused option
-            Toggle("Start paused", isOn: $startPaused)
-
-            if let error = errorMessage {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-            }
-
-            if let phase = addPhaseMessage {
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text(phase)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            HStack {
-                Button("Cancel") {
-                    dismiss()
-                }
-                .keyboardShortcut(.escape)
-                .disabled(isAdding)
-
-                Spacer()
-
-                Button("Add") {
-                    addDownload()
-                }
-                .keyboardShortcut(.return)
-                .buttonStyle(.borderedProminent)
-                .disabled(urlString.isEmpty || destinationPath.isEmpty || isAdding)
-            }
-        }
-        .padding()
-        .frame(width: 400)
-        .onAppear {
-            // Use Security-Scoped Bookmark if available, otherwise use Downloads folder
-            destinationPath = SecurityScopedBookmark.getDefaultDownloadDirectoryPath()
-        }
-        .onChange(of: urlString) { _ in
-            if isMediaURL {
-                resetFormatSelection()
-            }
-        }
-    }
-
-    private func addDownload() {
-        guard !isAdding else { return }
-        isAdding = true
-        errorMessage = nil
-        addPhaseMessage = isMediaURL ? "Extracting media info..." : "Resolving URL..."
-
-        Task {
-            do {
-                let formatID = isMediaURL ? selectedFormatID : nil
-                try await onAdd(
-                    urlString, destinationPath, connectionCount, selectedQueueID, startPaused,
-                    formatID)
-                await MainActor.run {
-                    urlString = ""
-                    destinationPath = ""
-                    addPhaseMessage = nil
-                    isAdding = false
-                    dismiss()
-                }
-            } catch {
-                await MainActor.run {
-                    addPhaseMessage = nil
-                    isAdding = false
-                    errorMessage = error.localizedDescription
-                }
-            }
-        }
-    }
-
-    private func chooseDestination() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.canCreateDirectories = true
-        panel.allowsMultipleSelection = false
-        if panel.runModal() == .OK, let url = panel.url {
-            destinationPath = url.path
-            // Save Security-Scoped Bookmark for persistent access
-            _ = SecurityScopedBookmark.saveBookmark(for: url)
-            _ = url.startAccessingSecurityScopedResource()
-        }
-    }
-
-    private func resetFormatSelection() {
-        availableFormats = []
-        selectedFormatID = "best"
-        formatError = nil
-        isLoadingFormats = false
-    }
-
-    private func loadFormats() {
-        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        let requestedURL = trimmed
-        isLoadingFormats = true
-        formatError = nil
-
-        Task {
-            do {
-                let parsedURL = URL(string: trimmed)
-                let cookieFileURL = parsedURL.flatMap {
-                    try? NetscapeCookieWriter.writeCookies(for: $0)
-                }
-                defer { NetscapeCookieWriter.cleanup(cookieFileURL) }
-
-                let formats = try await MediaExtractor.shared.listFormats(
-                    from: trimmed,
-                    cookiesFileURL: cookieFileURL
-                )
-                let sortedFormats = formats.sorted { formatSortKey($0) > formatSortKey($1) }
-
-                await MainActor.run {
-                    guard urlString.trimmingCharacters(in: .whitespacesAndNewlines) == requestedURL
-                    else {
-                        isLoadingFormats = false
-                        return
-                    }
-                    availableFormats = sortedFormats
-                    if selectedFormatID != "best",
-                        !sortedFormats.contains(where: { $0.id == selectedFormatID })
-                    {
-                        selectedFormatID = "best"
-                    }
-                    isLoadingFormats = false
-                }
-            } catch {
-                await MainActor.run {
-                    formatError = error.localizedDescription
-                    availableFormats = []
-                    isLoadingFormats = false
-                }
-            }
-        }
-    }
-
-    private func formatHeight(_ resolution: String?) -> Int {
-        guard let resolution else { return 0 }
-        let digits = resolution.filter { $0.isNumber }
-        return Int(digits) ?? 0
-    }
-
-    private func formatSortKey(_ format: MediaExtractor.MediaFormat) -> Int {
-        let height = formatHeight(format.resolution)
-        let typeBoost = format.isAudioOnly ? -1000 : 0
-        return height + typeBoost
     }
 }
 

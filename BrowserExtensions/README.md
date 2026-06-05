@@ -8,7 +8,7 @@ Browser extensions for intercepting downloads and sending them to Nexus.
 |---------|--------|----------|
 | Chrome | Ready | `Chrome/` |
 | Firefox | Ready | `Firefox/` |
-| Safari | Planned | `Safari/` |
+| Safari | Ready | `Safari/` |
 
 ## Installation
 
@@ -39,5 +39,6 @@ This installs Native Messaging Host manifests to:
 
 - **Context Menu**: Right-click any link → "Download with Nexus"
 - **Auto-intercept**: Large files (>10MB) automatically sent to Nexus
+- **Video Overlay**: Detects M3U8, MP4, and FLV sources on video players and injects an in-page download button
 - **Popup UI**: Manual URL entry and connection status
 - **Cookies**: Passes browser cookies for authenticated downloads

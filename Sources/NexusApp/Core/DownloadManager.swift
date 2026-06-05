@@ -37,7 +37,7 @@ class DownloadManager {
             }
             return
         }
-        
+
         if coordinators[taskID] == nil {
             let coordinator = TaskCoordinator(
                 taskID: taskID,
@@ -121,39 +121,49 @@ class DownloadManager {
     ///
     /// - Parameter url: The initial URL that may redirect.
     /// - Returns: Tuple of (final URL, filename) or nil if resolution fails.
-    private func resolveDownloadURL(_ url: URL, suggestedFilename: String? = nil) async -> (URL, String)? {
+    private func resolveDownloadURL(_ url: URL, suggestedFilename: String? = nil) async -> (
+        URL, String
+    )? {
         var currentURL = url
         let preferredFilename = sanitizeSuggestedFilename(suggestedFilename)
-        
+
         // First, follow all redirects manually to get the final URL
         let maxRedirects = 10
         for redirectCount in 0..<maxRedirects {
             var request = URLRequest(url: currentURL)
             request.httpMethod = "HEAD"
-            request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
+            request.setValue(
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                forHTTPHeaderField: "User-Agent")
             request.setValue("*/*", forHTTPHeaderField: "Accept")
             request.setValue("en-US,en;q=0.9", forHTTPHeaderField: "Accept-Language")
             request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
-            
+
             // Use a session that doesn't follow redirects automatically
             let config = URLSessionConfiguration.default
             let delegate = RedirectBlockingDelegate()
             let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
-            
+
             do {
                 let (_, response) = try await session.data(for: request)
                 guard let httpResponse = response as? HTTPURLResponse else {
                     break
                 }
-                
-                print("DownloadManager: Request to \(currentURL) returned status \(httpResponse.statusCode)")
-                
+
+                print(
+                    "DownloadManager: Request to \(currentURL) returned status \(httpResponse.statusCode)"
+                )
+
                 // Check for redirect (3xx)
                 if (300...399).contains(httpResponse.statusCode) {
                     if let location = httpResponse.value(forHTTPHeaderField: "Location") {
                         // Handle both absolute and relative URLs
-                        if let redirectURL = URL(string: location, relativeTo: currentURL)?.absoluteURL {
-                            print("DownloadManager: Following redirect (\(redirectCount + 1)/\(maxRedirects)) to \(redirectURL)")
+                        if let redirectURL = URL(string: location, relativeTo: currentURL)?
+                            .absoluteURL
+                        {
+                            print(
+                                "DownloadManager: Following redirect (\(redirectCount + 1)/\(maxRedirects)) to \(redirectURL)"
+                            )
                             currentURL = redirectURL
                             continue
                         }
@@ -162,26 +172,30 @@ class DownloadManager {
                     print("DownloadManager: Redirect without Location header")
                     break
                 }
-                
+
                 // Not a redirect, we've reached the final URL
                 break
-                
+
             } catch {
-                print("DownloadManager: HEAD request failed: \(error), trying with default session...")
+                print(
+                    "DownloadManager: HEAD request failed: \(error), trying with default session..."
+                )
                 // If HEAD fails, try with default session that follows redirects
                 break
             }
         }
-        
+
         print("DownloadManager: Final URL after redirects: \(currentURL)")
-        
+
         // Now get the actual file info from the final URL
         var lastStatusCode: Int = 0
         for attempt in 0..<2 {
             var request = URLRequest(url: currentURL)
             let useGET = (attempt == 1)
             request.httpMethod = useGET ? "GET" : "HEAD"
-            request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
+            request.setValue(
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                forHTTPHeaderField: "User-Agent")
             request.setValue("*/*", forHTTPHeaderField: "Accept")
             request.setValue("en-US,en;q=0.9", forHTTPHeaderField: "Accept-Language")
             request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
@@ -196,9 +210,9 @@ class DownloadManager {
                 guard let httpResponse = response as? HTTPURLResponse else {
                     break
                 }
-                
+
                 lastStatusCode = httpResponse.statusCode
-                
+
                 // Check if URLSession followed any additional redirects
                 if let finalURL = response.url, finalURL != currentURL {
                     print("DownloadManager: URLSession auto-redirected to \(finalURL)")
@@ -208,23 +222,32 @@ class DownloadManager {
                 // If we get an error status (4xx/5xx), don't try to parse as file
                 // This likely means we need authentication (cookies)
                 if httpResponse.statusCode >= 400 {
-                    print("DownloadManager: Server returned error \(httpResponse.statusCode) - may need authentication/cookies")
+                    print(
+                        "DownloadManager: Server returned error \(httpResponse.statusCode) - may need authentication/cookies"
+                    )
                     if !useGET {
                         continue  // Try GET
                     }
                     // Still error on GET - return nil to indicate failure
-                    print("DownloadManager: Cannot resolve URL - server requires authentication. Use browser extension for cookie-protected sites.")
+                    print(
+                        "DownloadManager: Cannot resolve URL - server requires authentication. Use browser extension for cookie-protected sites."
+                    )
                     return nil
                 }
 
                 // Extract filename from Content-Disposition header if available
                 var filename: String? = nil
-                if let contentDisposition = httpResponse.value(forHTTPHeaderField: "Content-Disposition") {
+                if let contentDisposition = httpResponse.value(
+                    forHTTPHeaderField: "Content-Disposition")
+                {
                     print("DownloadManager: Content-Disposition: \(contentDisposition)")
-                    if let filenameMatch = contentDisposition.range(of: #"filename\*?=(['"]?)([^'";\n]+)\1"#, options: .regularExpression) {
+                    if let filenameMatch = contentDisposition.range(
+                        of: #"filename\*?=(['"]?)([^'";\n]+)\1"#, options: .regularExpression)
+                    {
                         let filenamePart = String(contentDisposition[filenameMatch])
                         if let equalsIndex = filenamePart.firstIndex(of: "=") {
-                            var name = String(filenamePart[filenamePart.index(after: equalsIndex)...])
+                            var name = String(
+                                filenamePart[filenamePart.index(after: equalsIndex)...])
                             name = name.trimmingCharacters(in: .whitespaces)
                             if name.hasPrefix("\"") && name.hasSuffix("\"") {
                                 name = String(name.dropFirst().dropLast())
@@ -245,13 +268,15 @@ class DownloadManager {
                 if filename == nil || filename!.isEmpty {
                     // Try to get filename from the final URL path
                     let urlFilename = currentURL.lastPathComponent
-                    if !urlFilename.isEmpty && urlFilename != "/" && hasReasonableExtension(urlFilename) {
+                    if !urlFilename.isEmpty && urlFilename != "/"
+                        && hasReasonableExtension(urlFilename)
+                    {
                         filename = urlFilename
                         print("DownloadManager: Using filename from URL path: \(filename!)")
                     } else {
                         filename = response.suggestedFilename ?? urlFilename
                     }
-                    
+
                     if filename == nil || filename!.isEmpty || filename == "/" {
                         let pathComponents = currentURL.pathComponents.filter { $0 != "/" }
                         if let lastComponent = pathComponents.last, !lastComponent.isEmpty {
@@ -261,17 +286,21 @@ class DownloadManager {
                         }
                     }
                 }
-                
-                let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type") ?? response.mimeType
+
+                let contentType =
+                    httpResponse.value(forHTTPHeaderField: "Content-Type") ?? response.mimeType
                 print("DownloadManager: Content-Type: \(contentType ?? "nil")")
-                
-                let isHTML = contentType?.lowercased().contains("text/html") == true ||
-                    contentType?.lowercased().contains("application/xhtml+xml") == true
+
+                let isHTML =
+                    contentType?.lowercased().contains("text/html") == true
+                    || contentType?.lowercased().contains("application/xhtml+xml") == true
                 let hasExtension = hasReasonableExtension(filename ?? "")
 
                 // If HEAD returned HTML for an extensionless URL, try GET range for real headers
                 if !useGET && !hasExtension && isHTML {
-                    print("DownloadManager: HEAD returned HTML for extensionless URL, trying GET range...")
+                    print(
+                        "DownloadManager: HEAD returned HTML for extensionless URL, trying GET range..."
+                    )
                     continue
                 }
 
@@ -287,7 +316,9 @@ class DownloadManager {
                         let extensionFromMIME = getFileExtension(from: contentType)
                         if !extensionFromMIME.isEmpty {
                             finalFilename = "\(finalFilename).\(extensionFromMIME)"
-                            print("DownloadManager: Added extension '\(extensionFromMIME)' from Content-Type '\(contentType)'")
+                            print(
+                                "DownloadManager: Added extension '\(extensionFromMIME)' from Content-Type '\(contentType)'"
+                            )
                         }
                     }
                 }
@@ -301,27 +332,37 @@ class DownloadManager {
                 continue
             }
         }
-        
+
         // If we got error responses, return nil to indicate failure
         if lastStatusCode >= 400 {
-            print("DownloadManager: Failed to resolve URL - server returned \(lastStatusCode). For protected sites, use browser extension.")
+            print(
+                "DownloadManager: Failed to resolve URL - server returned \(lastStatusCode). For protected sites, use browser extension."
+            )
             return nil
         }
-        
+
         // If we hit max redirects or other failure, return original
-        let fallbackFilename = sanitizeSuggestedFilename(suggestedFilename)
+        let fallbackFilename =
+            sanitizeSuggestedFilename(suggestedFilename)
             ?? (url.lastPathComponent.isEmpty ? "download" : url.lastPathComponent)
         return (url, fallbackFilename)
     }
-    
+
     /// Delegate that blocks automatic redirect following
-    private class RedirectBlockingDelegate: NSObject, URLSessionTaskDelegate {
-        func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+    /// Delegate that blocks automatic redirect following
+    private final class RedirectBlockingDelegate: NSObject, URLSessionTaskDelegate,
+        @unchecked Sendable
+    {
+        func urlSession(
+            _ session: URLSession, task: URLSessionTask,
+            willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
+            completionHandler: @escaping (URLRequest?) -> Void
+        ) {
             // Don't follow redirects - return nil to stop
             completionHandler(nil)
         }
     }
-    
+
     /// Maps MIME types to file extensions
     private func getFileExtension(from mimeType: String) -> String {
         let mimeToExt: [String: String] = [
@@ -383,11 +424,13 @@ class DownloadManager {
             "application/vnd.android.package-archive": "apk",
             // Other
             "application/octet-stream": "bin",
-            "application/x-iso9660-image": "iso"
+            "application/x-iso9660-image": "iso",
         ]
-        
+
         // Extract base MIME type (remove charset, etc.)
-        let baseMIME = mimeType.components(separatedBy: ";").first?.trimmingCharacters(in: .whitespaces) ?? mimeType
+        let baseMIME =
+            mimeType.components(separatedBy: ";").first?.trimmingCharacters(in: .whitespaces)
+            ?? mimeType
         let lowerMIME = baseMIME.lowercased()
         if lowerMIME == "text/html" || lowerMIME == "application/xhtml+xml" {
             return ""
@@ -396,7 +439,8 @@ class DownloadManager {
     }
 
     private func sanitizeSuggestedFilename(_ suggested: String?) -> String? {
-        guard let suggested, !suggested.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard let suggested, !suggested.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
             return nil
         }
         let trimmed = suggested.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -425,9 +469,10 @@ class DownloadManager {
     ) -> MediaFormatSelection {
         let trimmedPreferred = preferredID.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedPreferred = trimmedPreferred.isEmpty ? "best" : trimmedPreferred
-        
+
         if normalizedPreferred != "best",
-           let exact = formats.first(where: { $0.id == normalizedPreferred }) {
+            let exact = formats.first(where: { $0.id == normalizedPreferred })
+        {
             if exact.isVideoOnly {
                 let audio = bestAudioFormat(formats)
                 return MediaFormatSelection(
@@ -461,7 +506,7 @@ class DownloadManager {
                 audioFormat: nil
             )
         }
-        
+
         if let combined = bestCombinedFormat(formats) {
             return MediaFormatSelection(
                 formatValue: combined.id,
@@ -473,7 +518,7 @@ class DownloadManager {
                 audioFormat: nil
             )
         }
-        
+
         let video = bestVideoFormat(formats)
         let audio = bestAudioFormat(formats)
         return MediaFormatSelection(
@@ -486,27 +531,35 @@ class DownloadManager {
             audioFormat: audio
         )
     }
-    
-    private func bestCombinedFormat(_ formats: [MediaExtractor.MediaFormat]) -> MediaExtractor.MediaFormat? {
+
+    private func bestCombinedFormat(_ formats: [MediaExtractor.MediaFormat]) -> MediaExtractor
+        .MediaFormat?
+    {
         let combined = formats.filter { !$0.isAudioOnly && !$0.isVideoOnly }
         return combined.max { formatRank($0) < formatRank($1) }
     }
-    
-    private func bestVideoFormat(_ formats: [MediaExtractor.MediaFormat]) -> MediaExtractor.MediaFormat? {
+
+    private func bestVideoFormat(_ formats: [MediaExtractor.MediaFormat]) -> MediaExtractor
+        .MediaFormat?
+    {
         let video = formats.filter { $0.isVideoOnly && !$0.isAudioOnly }
         return video.max { formatRank($0) < formatRank($1) }
     }
-    
-    private func bestAudioFormat(_ formats: [MediaExtractor.MediaFormat]) -> MediaExtractor.MediaFormat? {
+
+    private func bestAudioFormat(_ formats: [MediaExtractor.MediaFormat]) -> MediaExtractor
+        .MediaFormat?
+    {
         let audio = formats.filter { $0.isAudioOnly && !$0.isVideoOnly }
-        return audio.max { (formatBitrate($0), formatRank($0)) < (formatBitrate($1), formatRank($1)) }
+        return audio.max {
+            (formatBitrate($0), formatRank($0)) < (formatBitrate($1), formatRank($1))
+        }
     }
-    
+
     private func formatRank(_ format: MediaExtractor.MediaFormat) -> Int {
         let height = format.resolution?.filter { $0.isNumber }
         return Int(height ?? "") ?? 0
     }
-    
+
     private func formatBitrate(_ format: MediaExtractor.MediaFormat) -> Int64 {
         return format.bitrate ?? 0
     }
@@ -514,7 +567,9 @@ class DownloadManager {
     func addDownload(
         url: URL, destinationPath: String, connectionCount: Int = 8,
         queueID: UUID? = nil, startPaused: Bool = false, requireExtension: Bool = true,
-        suggestedFilename: String? = nil
+        suggestedFilename: String? = nil,
+        username: String? = nil,
+        password: String? = nil
     ) async -> UUID? {
         guard let container = modelContainer else {
             print("DownloadManager: modelContainer is nil")
@@ -525,20 +580,26 @@ class DownloadManager {
         // For manual downloads, check if URL has a file extension
         if requireExtension {
             let hasExtension = hasReasonableExtension(url.lastPathComponent)
-            
+
             if !hasExtension {
                 print("DownloadManager: URL does not have a file extension: \(url.absoluteString)")
                 // Try to resolve and check again
-                if let resolved = await resolveDownloadURL(url, suggestedFilename: suggestedFilename) {
+                if let resolved = await resolveDownloadURL(
+                    url, suggestedFilename: suggestedFilename)
+                {
                     let resolvedFilename = resolved.1
                     let resolvedHasExtension = hasReasonableExtension(resolvedFilename)
-                    
+
                     if !resolvedHasExtension {
-                        print("DownloadManager: Resolved URL also lacks extension, rejecting download")
+                        print(
+                            "DownloadManager: Resolved URL also lacks extension, rejecting download"
+                        )
                         return nil
                     }
                 } else {
-                    print("DownloadManager: Could not resolve URL and no extension found, rejecting download")
+                    print(
+                        "DownloadManager: Could not resolve URL and no extension found, rejecting download"
+                    )
                     return nil
                 }
             }
@@ -549,18 +610,30 @@ class DownloadManager {
         if let resolved = await resolveDownloadURL(url, suggestedFilename: suggestedFilename) {
             finalURL = resolved.0
             filename = resolved.1
-            print("DownloadManager: Resolved URL to \(finalURL.absoluteString), filename: \(filename)")
+            print(
+                "DownloadManager: Resolved URL to \(finalURL.absoluteString), filename: \(filename)"
+            )
         } else {
             // Resolution failed - likely authentication required
             // For browser downloads (requireExtension=false), proceed anyway as cookies will help
-            if requireExtension {
-                print("DownloadManager: Could not resolve URL - site may require authentication. Use browser extension.")
+            // Also proceed if manual credentials are provided
+            let hasCredentials =
+                (username != nil && !username!.isEmpty) || (password != nil && !password!.isEmpty)
+
+            if requireExtension && !hasCredentials {
+                print(
+                    "DownloadManager: Could not resolve URL - site may require authentication. Use browser extension or provide credentials."
+                )
                 return nil
             }
             // For browser downloads, use the suggested filename or URL path
             finalURL = url
-            filename = suggestedFilename ?? (url.lastPathComponent.isEmpty ? "download" : url.lastPathComponent)
-            print("DownloadManager: Resolution failed, proceeding with original URL and suggested filename: \(filename)")
+            filename =
+                suggestedFilename
+                ?? (url.lastPathComponent.isEmpty ? "download" : url.lastPathComponent)
+            print(
+                "DownloadManager: Resolution failed, proceeding with original URL and suggested filename: \(filename)"
+            )
         }
 
         var isDir: ObjCBool = false
@@ -582,12 +655,15 @@ class DownloadManager {
         // Get queue (selected or default)
         let queue: DownloadQueue
         if let queueID = queueID {
-            let descriptor = FetchDescriptor<DownloadQueue>(predicate: #Predicate { $0.id == queueID })
+            let descriptor = FetchDescriptor<DownloadQueue>(
+                predicate: #Predicate { $0.id == queueID })
             if let foundQueue = try? context.fetch(descriptor).first {
                 queue = foundQueue
             } else {
                 // Fallback to default if queue not found
-                queue = QueueManager.shared.getDefaultQueue() ?? DownloadQueue(name: "Default", maxConcurrentDownloads: 3)
+                queue =
+                    QueueManager.shared.getDefaultQueue()
+                    ?? DownloadQueue(name: "Default", maxConcurrentDownloads: 3)
                 context.insert(queue)
             }
         } else {
@@ -604,27 +680,31 @@ class DownloadManager {
         task.status = startPaused ? .paused : .pending
         task.queue = queue
         task.displayName = filename
-        
+        task.username = username
+        task.password = password
+
         // Store cookies from HTTPCookieStorage if available
         if let cookieData = CookieStorage.serializeCookies(for: finalURL) {
             task.httpCookies = cookieData
         }
-        
+
         // Store connection count preference (we'll use this when creating TaskCoordinator)
         // For now, we'll use the global maxConnectionsPerDownload, but could store per-task
 
         context.insert(task)
-        
+
         do {
             try context.save()
-            print("DownloadManager: Task saved successfully - \(task.id) with filename: \(filename)")
+            print(
+                "DownloadManager: Task saved successfully - \(task.id) with filename: \(filename)")
         } catch {
             print("DownloadManager: Failed to save task - \(error)")
             return nil
         }
-        
+
         // Force UI update by posting notification
-        NotificationCenter.default.post(name: NSNotification.Name("DownloadTaskAdded"), object: task.id)
+        NotificationCenter.default.post(
+            name: NSNotification.Name("DownloadTaskAdded"), object: task.id)
 
         // Trigger queue check (only if not paused)
         if !startPaused {
@@ -654,12 +734,12 @@ class DownloadManager {
         // isMediaURL is nonisolated, no await needed
         if extractor.isMediaURL(trimmedURLString) {
             print("DownloadManager: Detected as media URL")
-            
+
             // Create task IMMEDIATELY with placeholder info so it shows in UI
             guard let placeholderURL = URL(string: trimmedURLString) else {
                 return nil
             }
-            
+
             let context = container.mainContext
             let task = DownloadTask(
                 sourceURL: placeholderURL,
@@ -667,7 +747,7 @@ class DownloadManager {
                 status: .extracting  // New status for extracting
             )
             task.displayName = "Extracting: \(placeholderURL.host ?? "media")..."
-            
+
             // Get or create Default Queue
             let defaultQueue: DownloadQueue
             if let existingQueue = QueueManager.shared.getDefaultQueue() {
@@ -680,35 +760,37 @@ class DownloadManager {
 
             context.insert(task)
             try? context.save()
-            
+
             let taskID = task.id
             print("DownloadManager: Task added to UI immediately - \(taskID)")
-            
+
             // Extract media info in background, then update the task
             Task { @MainActor in
                 do {
-                    let normalizedFormatID = preferredFormatID?
+                    let normalizedFormatID =
+                        preferredFormatID?
                         .trimmingCharacters(in: .whitespacesAndNewlines) ?? "best"
 
                     // Check if yt-dlp is available
                     let isAvailable = await extractor.isYtDlpAvailable
                     if !isAvailable {
                         task.status = .error
-                        task.errorMessage = "yt-dlp not found. Please install it with: brew install yt-dlp"
+                        task.errorMessage =
+                            "yt-dlp not found. Please install it with: brew install yt-dlp"
                         try? context.save()
                         print("DownloadManager: yt-dlp not available")
                         return
                     }
-                    
+
                     print("DownloadManager: Starting media extraction...")
                     let cookiesFileURL = try? NetscapeCookieWriter.writeCookies(for: placeholderURL)
                     defer { NetscapeCookieWriter.cleanup(cookiesFileURL) }
-                    
+
                     let info = try await extractor.extractMediaInfo(
                         from: trimmedURLString,
                         cookiesFileURL: cookiesFileURL
                     )
-                    
+
                     // Update task with real info
                     let sanitizedTitle = info.title
                         .replacingOccurrences(of: "/", with: "-")
@@ -716,35 +798,42 @@ class DownloadManager {
                         .replacingOccurrences(of: "\"", with: "'")
                         .replacingOccurrences(of: "\n", with: " ")
                     let trimmedFormatID = normalizedFormatID.isEmpty ? "best" : normalizedFormatID
-                    
+
                     let selection = selectMediaFormat(
                         formats: info.availableFormats,
                         preferredID: trimmedFormatID
                     )
-                    
-                    if selection.requiresMuxing && (selection.videoFormat == nil || selection.audioFormat == nil) {
+
+                    if selection.requiresMuxing
+                        && (selection.videoFormat == nil || selection.audioFormat == nil)
+                    {
                         task.status = .error
                         task.errorMessage = "No compatible audio/video formats found"
                         try? context.save()
                         return
                     }
-                    
+
                     let filenameSuffix = selection.resolution.flatMap { $0.isEmpty ? nil : $0 }
-                    let baseFilename = filenameSuffix == nil ? sanitizedTitle : "\(sanitizedTitle) - \(filenameSuffix!)"
-                    let fileExtension = selection.fileExtension.isEmpty
+                    let baseFilename =
+                        filenameSuffix == nil
+                        ? sanitizedTitle : "\(sanitizedTitle) - \(filenameSuffix!)"
+                    let fileExtension =
+                        selection.fileExtension.isEmpty
                         ? info.fileExtension
                         : selection.fileExtension
                     let filename = "\(baseFilename).\(fileExtension)"
-                    let destinationPath = (destinationFolder as NSString).appendingPathComponent(filename)
-                    
+                    let destinationPath = (destinationFolder as NSString).appendingPathComponent(
+                        filename)
+
                     // For YouTube videos, the directURL might be the original URL
                     // We'll use yt-dlp to download it directly
                     let downloadURL: URL
                     if selection.requiresMuxing {
                         if let videoID = selection.videoFormat?.id,
-                           let audioID = selection.audioFormat?.id,
-                           videoID.hasPrefix("http"),
-                           audioID.hasPrefix("http") {
+                            let audioID = selection.audioFormat?.id,
+                            videoID.hasPrefix("http"),
+                            audioID.hasPrefix("http")
+                        {
                             task.mediaVideoURLString = videoID
                             task.mediaAudioURLString = audioID
                             downloadURL = placeholderURL
@@ -755,7 +844,8 @@ class DownloadManager {
                                 format: formatValue,
                                 cookiesFileURL: cookiesFileURL
                             )
-                            let parts = directURLString
+                            let parts =
+                                directURLString
                                 .split(separator: "\n")
                                 .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
                                 .filter { !$0.isEmpty }
@@ -786,7 +876,7 @@ class DownloadManager {
                         }
                         downloadURL = url
                     }
-                    
+
                     // Update task properties
                     task.sourceURL = downloadURL
                     task.destinationPath = destinationPath
@@ -797,16 +887,16 @@ class DownloadManager {
                     task.selectedFormatID = selection.formatValue ?? trimmedFormatID
                     task.derivedFilename = filename
                     task.requiresMuxing = selection.requiresMuxing
-                    
+
                     // Store cookies (if any) for the original URL to aid authenticated downloads
                     task.httpCookies = CookieStorage.serializeCookies(for: placeholderURL)
-                    
+
                     try? context.save()
                     print("DownloadManager: Media info extracted, starting download - \(taskID)")
-                    
+
                     // Start the download
                     await self.startDownload(taskID: taskID)
-                    
+
                 } catch let error as MediaExtractorError {
                     print("DownloadManager: Media extraction failed - \(error)")
                     task.status = .error
@@ -819,20 +909,22 @@ class DownloadManager {
                     try? context.save()
                 }
             }
-            
+
             return taskID
-            
+
         } else {
             print("DownloadManager: Regular URL, using addDownload")
             // Try to create URL, handling spaces and special characters
             var urlToUse: URL?
             if let url = URL(string: trimmedURLString) {
                 urlToUse = url
-            } else if let encoded = trimmedURLString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-                      let url = URL(string: encoded) {
+            } else if let encoded = trimmedURLString.addingPercentEncoding(
+                withAllowedCharacters: .urlQueryAllowed),
+                let url = URL(string: encoded)
+            {
                 urlToUse = url
             }
-            
+
             guard let url = urlToUse else {
                 print("DownloadManager: Invalid URL: \(trimmedURLString)")
                 return nil

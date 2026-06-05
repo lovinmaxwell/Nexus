@@ -12,27 +12,27 @@ struct GlassCard<Content: View>: View {
     }
 
     var body: some View {
-        ZStack {
-            // Glass Background
-            RoundedRectangle(cornerRadius: cornerRadius)
-                .fill(.ultraThinMaterial)
-                .opacity(0.8)
-                .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
-
-            // Border/Stroke for depth
-            RoundedRectangle(cornerRadius: cornerRadius)
-                .stroke(
-                    LinearGradient(
-                        colors: [.white.opacity(0.3), .white.opacity(0.1)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 1
-                )
-
-            // Content
-            content
-                .padding(padding)
-        }
+        content
+            .padding(padding)
+            .background {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(.thinMaterial)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .fill(AppColors.glassGradient.opacity(0.35))
+                    }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .strokeBorder(
+                                LinearGradient(
+                                    colors: [.white.opacity(0.34), .white.opacity(0.08)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 1
+                            )
+                    }
+                    .shadow(color: .black.opacity(0.12), radius: 14, x: 0, y: 10)
+            }
     }
 }

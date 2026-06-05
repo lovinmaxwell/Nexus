@@ -17,4 +17,5 @@ protocol NetworkHandler {
     func downloadRange(url: URL, start: Int64, end: Int64) async throws -> AsyncThrowingStream<
         Data, Error
     >
+    func setCredentials(username: String?, password: String?)
 }

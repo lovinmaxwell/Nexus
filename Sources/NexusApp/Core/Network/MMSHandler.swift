@@ -21,6 +21,10 @@ class MMSHandler: NetworkHandler {
         return (0, false, nil, nil)
     }
 
+    func setCredentials(username: String?, password: String?) {
+        // MMS doesn't typically support standard auth in this way, ignoring for now
+    }
+
     func downloadRange(url: URL, start: Int64, end: Int64) async throws -> AsyncThrowingStream<
         Data, Error
     > {
